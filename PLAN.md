@@ -2,7 +2,7 @@
 
 > Documento de estado, arquitectura y roadmap interno del proyecto.  
 > Branch activo: `claude/add-licensing-system-KsFAw`  
-> Último commit: `1933338` — 18 mayo 2026
+> Último commit: `131c004` — 18 mayo 2026
 
 ---
 
