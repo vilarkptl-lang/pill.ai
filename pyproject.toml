@@ -8,13 +8,15 @@ version = "0.1.0"
 description = "Ultra-cheap multi-agent computer-use AI — fork of Open Interpreter + LangGraph"
 readme = "README.md"
 license = { text = "BSL-1.1" }
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 authors = [
     { name = "pill.ai", email = "hello@pill.ai" }
 ]
 keywords = ["ai", "agent", "computer-use", "langgraph", "deepseek", "gemini"]
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
@@ -45,7 +47,6 @@ dependencies = [
 server = [
     "fastapi>=0.111.0",
     "uvicorn[standard]>=0.30.0",
-    "sqlite3",
 ]
 dashboard = [
     "streamlit>=1.35.0",
@@ -72,7 +73,7 @@ packages = ["interpreter", "agents", "licensing", "dashboard"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py310"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
