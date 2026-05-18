@@ -1,0 +1,41 @@
+Business Source License 1.1
+
+Licensor: pill.ai (vilarkptl-lang)
+Licensed Work: pill.ai — UltraCheap-Computer-AI
+Version: 0.1.0
+Change Date: 2028-01-01
+Change License: Apache License 2.0
+
+Use Limitation:
+  You may not provide the Licensed Work or any derivative work to third parties
+  as a hosted or managed service where the service provides users with access
+  to any substantial set of the features or functionality of the Licensed Work.
+
+  You may not use the Licensed Work for commercial purposes without purchasing
+  a commercial license from the Licensor.
+
+  "Commercial purposes" means any use of the Licensed Work that is primarily
+  intended for or directed toward commercial advantage or monetary compensation,
+  including but not limited to:
+    - SaaS or hosted services built on top of this software
+    - Redistribution as part of a commercial product
+    - Use by an organization with more than 5 employees
+
+  Personal and non-commercial use is permitted under this license.
+
+Notice:
+  Each version of the Licensed Work has a "Change Date" specified above.
+  Effective on the Change Date, the Licensor grants you a license to the
+  Licensed Work under the terms of the Change License specified above.
+  On and after the Change Date, this Business Source License will no longer
+  apply to the Licensed Work and the Change License will govern.
+
+For commercial licenses, visit: https://pill.ai/pricing
+For questions, contact: legal@pill.ai
+
+────────────────────────────────────────────────────────────────────────────────
+
+This file is based in part on Open Interpreter (https://github.com/OpenInterpreter/open-interpreter)
+Copyright (c) Open Interpreter contributors — used under AGPL-3.0 and modified.
+
+Additional components are original to pill.ai and subject to the terms above.

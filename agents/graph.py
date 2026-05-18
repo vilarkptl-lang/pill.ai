@@ -1,0 +1,327 @@
+"""
+LangGraph multi-agent orchestration for pill.ai.
+
+Graph topology:
+  user_input
+      │
+  supervisor  (DeepSeek V4 Pro — routes + reasons)
+      ├─► vision_agent     (Gemini Flash — analyzes screenshots)
+      ├─► browser_agent    (Playwright — web tasks)
+      ├─► desktop_agent    (pyautogui — GUI control)
+      ├─► shell_agent      (terminal/sudo)
+      └─► coder_agent      (generates code / dashboards)
+              │
+          END (returns output + optional new_skill)
+"""
+from __future__ import annotations
+
+from typing import Annotated, Any, Optional, TypedDict
+
+try:
+    from langgraph.graph import StateGraph, END
+    from langgraph.graph.message import add_messages
+    HAS_LANGGRAPH = True
+except ImportError:
+    HAS_LANGGRAPH = False
+
+from interpreter.llm import LLMRouter
+from interpreter.tools.browser import BrowserTool
+from interpreter.tools.desktop import DesktopTool
+from interpreter.tools.shell import ShellTool
+
+
+# ── State schema ─────────────────────────────────────────────────────────────
+
+class AgentState(TypedDict):
+    messages: Annotated[list[dict], add_messages] if HAS_LANGGRAPH else list[dict]
+    task: str
+    safe_mode: str
+    license_tier: str
+    route: Optional[str]           # which agent to call next
+    agent_output: str              # last agent's text output
+    output: str                    # final answer to user
+    new_skill: Optional[str]       # description to append to skills.md
+    iteration: int
+
+
+# ── Node implementations ──────────────────────────────────────────────────────
+
+def _supervisor_node(state: AgentState, router: LLMRouter) -> AgentState:
+    """
+    DeepSeek V4 Pro decides which specialist agent to call.
+    Returns route = one of: vision | browser | desktop | shell | coder | final
+    """
+    system = (
+        "You are the supervisor of a multi-agent computer-use system.\n"
+        "Given the user task and conversation, decide which specialist to call:\n"
+        "  vision   — analyze screenshot of screen/browser\n"
+        "  browser  — web browsing, form filling, web scraping\n"
+        "  desktop  — GUI clicking, drag-drop, keyboard shortcuts\n"
+        "  shell    — terminal commands, file ops, scripts\n"
+        "  coder    — write/run Python code, build dashboards\n"
+        "  final    — task complete, return answer\n"
+        "\nRespond with ONLY the route name. Nothing else."
+    )
+    messages = [
+        {"role": "system", "content": system},
+        *state["messages"],
+        {"role": "user", "content": f"Task: {state['task']}\nPrevious output: {state.get('agent_output', '')}"},
+    ]
+    route = router.complete(messages).strip().lower()
+    valid = {"vision", "browser", "desktop", "shell", "coder", "final"}
+    if route not in valid:
+        route = "final"
+
+    new_state = dict(state)
+    new_state["route"] = route
+    new_state["iteration"] = state.get("iteration", 0) + 1
+    return new_state
+
+
+def _vision_node(state: AgentState, router: LLMRouter) -> AgentState:
+    """Gemini Flash analyzes a desktop screenshot."""
+    desktop = DesktopTool(safe_mode=state["safe_mode"])
+    try:
+        description = desktop.screenshot_and_describe(router)
+    except Exception as e:
+        description = f"[vision error: {e}]"
+
+    messages = [
+        {"role": "system", "content": "Analyze the screen and determine the next step."},
+        *state["messages"],
+        {"role": "user", "content": f"Screen shows: {description}\nTask: {state['task']}"},
+    ]
+    answer = router.complete(messages, model="gemini/gemini-2.0-flash", has_images=False)
+    new_state = dict(state)
+    new_state["agent_output"] = answer
+    new_state["messages"] = state["messages"] + [{"role": "assistant", "content": f"[vision] {answer}"}]
+    return new_state
+
+
+def _browser_node(state: AgentState, router: LLMRouter) -> AgentState:
+    """Browser agent: asks the LLM for Playwright steps, executes them."""
+    system = (
+        "You control a Playwright browser. Generate a JSON action list.\n"
+        "Actions: [{\"action\": \"goto\", \"url\": \"...\"}, "
+        "{\"action\": \"click\", \"selector\": \"...\"}, "
+        "{\"action\": \"fill\", \"selector\": \"...\", \"text\": \"...\"}, "
+        "{\"action\": \"extract_text\"}, {\"action\": \"screenshot\"}]\n"
+        "Return ONLY valid JSON array."
+    )
+    messages = [
+        {"role": "system", "content": system},
+        *state["messages"],
+        {"role": "user", "content": state["task"]},
+    ]
+    raw = router.complete(messages)
+    result = _execute_browser_actions(raw, state["safe_mode"])
+    new_state = dict(state)
+    new_state["agent_output"] = result
+    new_state["messages"] = state["messages"] + [{"role": "assistant", "content": f"[browser] {result}"}]
+    return new_state
+
+
+def _desktop_node(state: AgentState, router: LLMRouter) -> AgentState:
+    """Desktop agent: clicks, types, hotkeys."""
+    system = (
+        "You control a desktop via pyautogui. Generate JSON action list.\n"
+        "Actions: [{\"action\": \"click\", \"x\": 100, \"y\": 200}, "
+        "{\"action\": \"type\", \"text\": \"...\"}, "
+        "{\"action\": \"hotkey\", \"keys\": [\"ctrl\",\"c\"]}, "
+        "{\"action\": \"screenshot\"}]\n"
+        "Return ONLY valid JSON array."
+    )
+    messages = [
+        {"role": "system", "content": system},
+        *state["messages"],
+        {"role": "user", "content": state["task"]},
+    ]
+    raw = router.complete(messages)
+    result = _execute_desktop_actions(raw, state["safe_mode"])
+    new_state = dict(state)
+    new_state["agent_output"] = result
+    new_state["messages"] = state["messages"] + [{"role": "assistant", "content": f"[desktop] {result}"}]
+    return new_state
+
+
+def _shell_node(state: AgentState, router: LLMRouter) -> AgentState:
+    """Shell agent: generates and runs terminal commands."""
+    system = (
+        "Generate a shell command to accomplish the task. "
+        "Return ONLY the shell command, nothing else."
+    )
+    messages = [
+        {"role": "system", "content": system},
+        *state["messages"],
+        {"role": "user", "content": state["task"]},
+    ]
+    command = router.complete(messages).strip()
+    shell = ShellTool(safe_mode=state["safe_mode"])
+    result = shell.run(command)
+    output = result["stdout"] or result["stderr"] or f"exit code {result['returncode']}"
+    new_state = dict(state)
+    new_state["agent_output"] = output
+    new_state["messages"] = state["messages"] + [
+        {"role": "assistant", "content": f"[shell] $ {command}\n{output}"}
+    ]
+    return new_state
+
+
+def _coder_node(state: AgentState, router: LLMRouter) -> AgentState:
+    """Coder agent: writes Python code, optionally runs it."""
+    system = (
+        "Write clean Python 3.12+ code to accomplish the task.\n"
+        "If the task mentions 'dashboard', use Streamlit.\n"
+        "Return the code inside a ```python block."
+    )
+    messages = [
+        {"role": "system", "content": system},
+        *state["messages"],
+        {"role": "user", "content": state["task"]},
+    ]
+    code_response = router.complete(messages)
+    code = _extract_code(code_response)
+
+    skill_desc = None
+    if code:
+        shell = ShellTool(safe_mode=state["safe_mode"])
+        run_result = shell.run_python(code)
+        output = run_result["stdout"] or run_result["stderr"]
+        skill_desc = f"Auto-generated skill\n\nTask: {state['task'][:200]}\n\n```python\n{code[:1000]}\n```"
+    else:
+        output = code_response
+
+    new_state = dict(state)
+    new_state["agent_output"] = output
+    new_state["new_skill"] = skill_desc
+    new_state["messages"] = state["messages"] + [{"role": "assistant", "content": f"[coder]\n{code_response}"}]
+    return new_state
+
+
+def _final_node(state: AgentState, router: LLMRouter) -> AgentState:
+    """Synthesize all agent outputs into a final user-facing answer."""
+    system = "Summarize what was accomplished. Be concise and helpful."
+    messages = [
+        {"role": "system", "content": system},
+        *state["messages"],
+        {"role": "user", "content": f"Original task: {state['task']}"},
+    ]
+    final = router.complete(messages)
+    new_state = dict(state)
+    new_state["output"] = final
+    return new_state
+
+
+# ── Graph builder ─────────────────────────────────────────────────────────────
+
+def build_graph(router: LLMRouter):
+    if not HAS_LANGGRAPH:
+        raise ImportError("langgraph not installed: pip install langgraph")
+
+    g = StateGraph(AgentState)
+
+    g.add_node("supervisor", lambda s: _supervisor_node(s, router))
+    g.add_node("vision",     lambda s: _vision_node(s, router))
+    g.add_node("browser",    lambda s: _browser_node(s, router))
+    g.add_node("desktop",    lambda s: _desktop_node(s, router))
+    g.add_node("shell",      lambda s: _shell_node(s, router))
+    g.add_node("coder",      lambda s: _coder_node(s, router))
+    g.add_node("final",      lambda s: _final_node(s, router))
+
+    g.set_entry_point("supervisor")
+
+    def _route(state: AgentState) -> str:
+        if state.get("iteration", 0) >= 8:   # prevent infinite loops
+            return "final"
+        return state.get("route", "final")
+
+    g.add_conditional_edges("supervisor", _route, {
+        "vision":  "vision",
+        "browser": "browser",
+        "desktop": "desktop",
+        "shell":   "shell",
+        "coder":   "coder",
+        "final":   "final",
+    })
+
+    # After each specialist, go back to supervisor (or finish)
+    for node in ("vision", "browser", "desktop", "shell", "coder"):
+        g.add_edge(node, "supervisor")
+
+    g.add_edge("final", END)
+
+    return g.compile()
+
+
+# ── Action executors ──────────────────────────────────────────────────────────
+
+def _execute_browser_actions(raw_json: str, safe_mode: str) -> str:
+    import json, re
+    match = re.search(r"\[.*\]", raw_json, re.DOTALL)
+    if not match:
+        return f"[could not parse actions: {raw_json[:200]}]"
+    try:
+        actions = json.loads(match.group())
+    except json.JSONDecodeError:
+        return "[invalid JSON from browser agent]"
+
+    browser = BrowserTool(safe_mode=safe_mode)
+    results = []
+    with browser:
+        for act in actions:
+            try:
+                a = act.get("action")
+                if a == "goto":
+                    browser.goto(act["url"])
+                    results.append(f"Navigated to {act['url']}")
+                elif a == "click":
+                    browser.click(act["selector"])
+                    results.append(f"Clicked {act['selector']}")
+                elif a == "fill":
+                    browser.fill(act["selector"], act["text"])
+                    results.append(f"Filled {act['selector']}")
+                elif a == "extract_text":
+                    text = browser.text()[:2000]
+                    results.append(f"Page text: {text}")
+                elif a == "screenshot":
+                    results.append("[screenshot taken]")
+            except Exception as e:
+                results.append(f"[error on {act}: {e}]")
+    return "\n".join(results)
+
+
+def _execute_desktop_actions(raw_json: str, safe_mode: str) -> str:
+    import json, re
+    match = re.search(r"\[.*\]", raw_json, re.DOTALL)
+    if not match:
+        return f"[could not parse actions: {raw_json[:200]}]"
+    try:
+        actions = json.loads(match.group())
+    except json.JSONDecodeError:
+        return "[invalid JSON from desktop agent]"
+
+    desktop = DesktopTool(safe_mode=safe_mode)
+    results = []
+    for act in actions:
+        try:
+            a = act.get("action")
+            if a == "click":
+                desktop.click(act["x"], act["y"], act.get("button", "left"))
+                results.append(f"Clicked ({act['x']},{act['y']})")
+            elif a == "type":
+                desktop.type(act["text"])
+                results.append(f"Typed: {act['text'][:50]}")
+            elif a == "hotkey":
+                desktop.hotkey(*act["keys"])
+                results.append(f"Hotkey: {act['keys']}")
+            elif a == "screenshot":
+                results.append("[screenshot taken]")
+        except Exception as e:
+            results.append(f"[error on {act}: {e}]")
+    return "\n".join(results)
+
+
+def _extract_code(text: str) -> str:
+    import re
+    match = re.search(r"```python\n(.*?)```", text, re.DOTALL)
+    return match.group(1).strip() if match else ""
