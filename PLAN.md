@@ -2,7 +2,7 @@
 
 > Documento de estado, arquitectura y roadmap interno del proyecto.  
 > Branch activo: `claude/add-licensing-system-KsFAw`  
-> Último commit: `131c004` — 18 mayo 2026
+> Último commit: `(pendiente push)` — 18 mayo 2026
 
 ---
 
@@ -39,9 +39,13 @@ pill.ai/
 │   │   └── core.py                ← Interpreter: chat(), dispatch(), skills
 │   └── tools/
 │       ├── __init__.py
-│       ├── browser.py             ← Playwright sync wrapper
+│       ├── browser.py             ← Playwright sync wrapper (OI usaba Selenium)
+│       ├── clipboard.py           ← pyperclip: copy/paste (nuevo en pill.ai)
 │       ├── desktop.py             ← pyautogui: click, drag, hotkey, screenshot
-│       └── shell.py               ← subprocess, sudo, patrones peligrosos
+│       ├── display.py             ← screen geometry + screenshot (nuevo en pill.ai)
+│       ├── files.py               ← read/write/find/tree (nuevo en pill.ai)
+│       ├── shell.py               ← subprocess, sudo, patrones peligrosos
+│       └── vision.py              ← Gemini Flash vision queries (OI usaba GPT-4V)
 │
 ├── licensing/
 │   ├── __init__.py                ← exporta LicenseClient, activate, deactivate
@@ -271,6 +275,89 @@ pill.ai **no es un fork de código** de Open Interpreter — es una reimplementa
 | 5 | Fingerprint débil en Docker/VMs | `machine_id` UUID persistente en `~/.pill.ai/machine.id` | `3d26c7b` |
 | 6 | `require_license()` bloqueaba uso local | Nunca bloquea; `require_relay()` es el único hard gate | `1933338` |
 | 7 | shell_agent ejecutaba comandos peligrosos sin confirmación | Nodo `human_approval` en el grafo para `rm -rf`, `sudo`, >10 clicks | `1933338` |
+| 8 | Singleton OI causaba network call en cada `import` | `_LazyInterpreter` proxy — construye en primer acceso | `(pendiente)` |
+| 9 | `computer.*` namespace incompleto — faltaban display, clipboard, files, vision | 8 sub-módulos implementados; 6 más en Fase 2 | `(pendiente)` |
+
+---
+
+## Diff explícito: Open Interpreter → pill.ai
+
+### interpreter/interpreter.py
+
+| Archivo OI | Cambio pill.ai | Razón |
+|-----------|---------------|-------|
+| `from interpreter import interpreter` singleton | `_LazyInterpreter` proxy; construye en primer acceso | Evita network call de licencia en cada `import` |
+| `Interpreter()` construido en import time | Lazy; deferred hasta primer `.chat()` | Performance + testabilidad |
+
+### interpreter/core/core.py
+
+| Param OI | Estado pill.ai | Notas |
+|----------|---------------|-------|
+| `messages`, `offline`, `auto_run`, `verbose` | ✅ idéntico | — |
+| `debug`, `max_output`, `shrink_images` | ✅ idéntico | — |
+| `loop`, `loop_message`, `loop_breakers` | ✅ idéntico | — |
+| `safe_mode` | ✅ mismo nombre; default cambiado a `"off"` para compat OI | OI default era `"off"` |
+| `disable_telemetry` | ✅ idéntico; default `True` (pill.ai no tiene telemetría) | Privacy-first |
+| `conversation_history`, `conversation_filename`, `conversation_history_path` | ✅ idéntico; guarda en `~/.pill.ai/conversations/` | OI guardaba en `~/.openinterpreter/` |
+| `os`, `speak_messages` | ✅ presentes (speak_messages es no-op en Fase 1) | API parity |
+| `llm` | ✅ aceptado, ignorado — pill.ai siempre usa LiteLLM | OI pasaba objeto LLM custom |
+| `system_message`, `custom_instructions` | ✅ idéntico; custom_instructions se concatena | — |
+| `user_message_template`, `code_output_template`, `code_output_sender` | ✅ idéntico | — |
+| `import_computer_api`, `sync_computer` | ✅ presentes (no-op en Fase 1) | API parity |
+| `skills_path`, `import_skills` | ✅ idéntico; default `~/.pill.ai/skills.md` | OI no tenía skills |
+| `multi_line`, `plain_text_display` | ✅ idéntico | — |
+| `contribute_conversation` | ✅ aceptado, ignorado (pill.ai no tiene telemetría) | API parity |
+| `model` | 🔄 default `deepseek/deepseek-chat` vs `gpt-4o` de OI | 95% más barato |
+| `license_key`, `max_budget_per_task`, `context_window` | ➕ nuevos en pill.ai | — |
+
+### interpreter/tools/browser.py
+
+| Aspecto | OI original | pill.ai | Razón del cambio |
+|---------|------------|---------|-----------------|
+| Engine | Selenium + ChromeDriverManager | **Playwright sync** | Playwright: más rápido, API más limpia, sin ChromeDriver download |
+| API pública | `goto`, `find_element`, `get_text` | `goto`, `click`, `fill`, `text`, `html`, `execute_js`, `screenshot_and_describe` | Extendido |
+| Screenshots | No nativo | `screenshot()`, `screenshot_b64()`, `screenshot_and_describe(router)` | Integración con vision agent |
+| Modo headless | Configurable | `headless=False` default (visible por defecto) | Mejor UX para computer-use |
+
+### interpreter/tools/desktop.py
+
+| Aspecto | OI original | pill.ai | Razón |
+|---------|------------|---------|-------|
+| Mouse move | `pyautogui.moveTo` smooth | Mismo | — |
+| `find_text` via CV2 | ✅ OI tenía `computer.mouse.find_text()` | ❌ Fase 1 usa coords explícitas | CV2 añade 200MB dep; vision agent cubre el caso |
+| `find_icon` via CV2 | ✅ OI | ❌ Fase 1 | Mismo motivo |
+| Window management | No | `get_active_window`, `focus_window` via pygetwindow | Útil para desktop automation |
+| `screenshot_and_describe` | No | ✅ Envía a Gemini Flash | Integración con vision agent |
+
+### interpreter/tools/shell.py
+
+| Aspecto | OI original | pill.ai | Razón |
+|---------|------------|---------|-------|
+| Ejecución | `subprocess.run` single-shot | Threading con pipes + streaming | Output en tiempo real |
+| sudo | Pide cada vez | Caching en memoria (una vez por sesión) | UX |
+| Timeout | No | 60s default configurable | Safety |
+| Dangerous patterns | Confirmación inline | `_DANGEROUS_PATTERNS` + HITL node en el graph | Aislamiento en el grafo |
+
+### computer.* namespaces
+
+| Sub-módulo | OI | pill.ai | Notas |
+|-----------|-----|---------|-------|
+| `computer.terminal` | ✅ | ✅ `ShellTool` | — |
+| `computer.mouse` | ✅ | ✅ `DesktopTool` | — |
+| `computer.keyboard` | ✅ | ✅ mismo `DesktopTool` | OI los separaba; pill.ai los une (mismo objeto) |
+| `computer.browser` | ✅ Selenium | ✅ Playwright | Mejor engine |
+| `computer.display` | ✅ python-xlib | ✅ `DisplayTool` pyautogui | Cross-platform |
+| `computer.clipboard` | ✅ | ✅ `ClipboardTool` pyperclip | — |
+| `computer.files` | ✅ básico | ✅ `FilesTool` extendido (find, tree, read_lines) | — |
+| `computer.vision` | ✅ GPT-4V | ✅ `VisionTool` Gemini 2.0 Flash | 5x más barato |
+| `computer.os` | ✅ | alias → `terminal` | — |
+| `computer.screenshot()` | ✅ método directo | ✅ delega a `display.screenshot()` | — |
+| `computer.mail` | ✅ OI | ❌ Fase 2 | — |
+| `computer.sms` | ✅ OI | ❌ Fase 2 | — |
+| `computer.calendar` | ✅ OI | ❌ Fase 2 | — |
+| `computer.contacts` | ✅ OI | ❌ Fase 2 | — |
+| `computer.docs` | ✅ OI | ❌ Fase 2 | — |
+| `computer.ai` | ✅ OI | ❌ Fase 2 | — |
 
 ---
 
@@ -309,4 +396,4 @@ Ollama local · mobile app · enterprise on-premise · Apache 2.0 (2028)
 
 ---
 
-*Actualizado: 2026-05-18 — commit `1933338` — branch `claude/add-licensing-system-KsFAw`*
+*Actualizado: 2026-05-18 — branch `claude/add-licensing-system-KsFAw`*
