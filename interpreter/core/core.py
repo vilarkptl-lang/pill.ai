@@ -66,8 +66,9 @@ class Interpreter:
         self._graph = None   # lazy-loaded LangGraph
 
         # ── Skills ────────────────────────────────────────────────────────
-        self._skills_path = Path("skills.md")
-        self._compactor = None   # lazy-loaded SkillsCompactor
+        # .pill.ai/ is gitignored — skills grow locally, never committed accidentally
+        self._skills_path = Path(".pill.ai") / "skills.md"
+        self._skills_path.parent.mkdir(parents=True, exist_ok=True)
 
         self._print_banner()
         self._ask_permissions_on_first_run()
@@ -120,31 +121,27 @@ class Interpreter:
         return self._graph
 
     def _update_skills(self, description: str):
-        """Append new skill entry to skills.md, compacting if entries exceed threshold."""
+        """
+        Add new skill to .pill.ai/skills.md.
+        Before appending, check semantic similarity against existing entries —
+        if a duplicate is found, merge in-place instead of appending.
+        """
         import datetime
-        from interpreter.skills_compactor import SkillsCompactor, COMPACT_THRESHOLD
-
-        if self._compactor is None:
-            self._compactor = SkillsCompactor(self._router)
+        from interpreter.skills_compactor import check_duplicate, merge_into_existing
 
         entry = (
-            f"\n## {description.split(chr(10))[0][:80]}\n"
+            f"## {description.split(chr(10))[0][:80]}\n"
             f"_Added: {datetime.date.today()}_\n\n"
             f"{description}\n"
         )
 
-        existing = self._skills_path.read_text() if self._skills_path.exists() else ""
-        current_entries = [e for e in existing.split("\n## ") if e.strip()]
-
-        if len(current_entries) >= COMPACT_THRESHOLD:
-            compacted = self._compactor.compact(current_entries)
-            if compacted:
-                header = existing.split("\n## ")[0] if existing else ""
-                self._skills_path.write_text(header + "\n" + compacted + entry)
-                return
+        duplicate_header = check_duplicate(description, self._skills_path, self._router)
+        if duplicate_header:
+            merge_into_existing(duplicate_header, entry, self._skills_path, self._router)
+            return
 
         with open(self._skills_path, "a") as f:
-            f.write(entry)
+            f.write("\n" + entry)
 
     def _ask_permissions_on_first_run(self):
         marker = Path.home() / ".pill.ai" / "permissions_asked"

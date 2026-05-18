@@ -1,65 +1,111 @@
 """
-Port of agentic-repo/financial/bot/agents/context-compactor.js to Python.
+Semantic deduplication for skills.md entries.
 
-Integrates with _update_skills(): before appending a new entry to skills.md,
-compact similar/redundant entries so the file doesn't grow unboundedly.
+Unlike the ContextCompactor in agentic-repo (which collapses conversation
+history by recency), skills are unique capabilities — they don't expire and
+shouldn't be collapsed by count. The correct trigger is semantic similarity:
+"does this new skill already exist under a different name?"
+
+On each new skill, we ask the router to check against existing skill headers.
+No TTL, no count threshold, no in-memory cache needed.
 """
 from __future__ import annotations
 
-import time
+from pathlib import Path
 from typing import Optional
 
 
-COMPACT_THRESHOLD = 12   # minimum entries before compaction kicks in
-CACHE_TTL_MS = 90_000    # 90 seconds, matching JS original
-
-
-class SkillsCompactor:
+def check_duplicate(
+    new_description: str,
+    skills_path: Path,
+    router,
+) -> Optional[str]:
     """
-    In-memory compactor for skills.md entries.
-    Uses DeepSeek to collapse semantically similar skills into one summary.
+    Return the header of an existing skill that semantically duplicates
+    `new_description`, or None if no duplicate exists.
+
+    Costs ~1 cheap DeepSeek call (< $0.0001). Only called when skills_path
+    has at least one existing entry.
     """
+    if not skills_path.exists():
+        return None
 
-    def __init__(self, router):
-        self._router = router
-        self._cache: dict[str, dict] = {}   # key → {result, expires_at}
+    existing_headers = _parse_headers(skills_path.read_text())
+    if not existing_headers:
+        return None
 
-    def compact(self, entries: list[str]) -> Optional[str]:
-        """
-        Given a list of skills.md entry strings, return a compacted version
-        or None if below threshold (caller should just append normally).
-        """
-        if len(entries) < COMPACT_THRESHOLD:
-            return None
+    header_list = "\n".join(f"- {h}" for h in existing_headers)
+    new_title = new_description.split("\n")[0][:120]
 
-        cache_key = _entries_key(entries)
-        cached = self._cache.get(cache_key)
-        if cached and cached["expires_at"] > time.time() * 1000:
-            return cached["result"]
+    prompt = (
+        "You are checking a skills log for duplicates.\n"
+        "Existing skill headers:\n"
+        f"{header_list}\n\n"
+        f"New skill to add: {new_title}\n\n"
+        "If the new skill is semantically equivalent or a subset of an existing skill, "
+        "reply with EXACTLY the matching header text and nothing else.\n"
+        "If it is genuinely new or distinct, reply with: UNIQUE"
+    )
 
-        prompt = (
-            "You are a skills log compactor. "
-            "Below are skill entries recorded by an AI agent. "
-            "Collapse semantically duplicate or highly similar entries into one concise summary per skill group. "
-            "Return a clean markdown list — one entry per unique skill. "
-            "Discard redundant entries. Keep the most recent date.\n\n"
-            + "\n---\n".join(entries)
-        )
-        result = self._router.complete([{"role": "user", "content": prompt}])
+    response = router.complete([{"role": "user", "content": prompt}]).strip()
 
-        self._cache[cache_key] = {
-            "result": result,
-            "expires_at": time.time() * 1000 + CACHE_TTL_MS,
-        }
-        return result
-
-    def invalidate(self, cache_key: str):
-        self._cache.pop(cache_key, None)
-
-    def clear(self):
-        self._cache.clear()
+    if response == "UNIQUE" or response not in existing_headers:
+        return None
+    return response
 
 
-def _entries_key(entries: list[str]) -> str:
-    import hashlib
-    return hashlib.md5("\n".join(entries[:COMPACT_THRESHOLD]).encode()).hexdigest()
+def merge_into_existing(
+    existing_header: str,
+    new_description: str,
+    skills_path: Path,
+    router,
+) -> None:
+    """
+    Merge new_description into the existing skill entry rather than appending.
+    Calls the router to produce a merged entry, then replaces in-place.
+    """
+    content = skills_path.read_text()
+    sections = _split_sections(content)
+
+    target_idx = next(
+        (i for i, (h, _) in enumerate(sections) if h == existing_header), None
+    )
+    if target_idx is None:
+        return
+
+    _, existing_body = sections[target_idx]
+
+    prompt = (
+        "Merge these two skill entries into one concise markdown section. "
+        "Keep the most specific and complete information. Remove redundancy.\n\n"
+        f"## {existing_header}\n{existing_body}\n\n"
+        f"---\n\n{new_description}"
+    )
+    merged = router.complete([{"role": "user", "content": prompt}]).strip()
+    sections[target_idx] = (existing_header, merged.removeprefix(f"## {existing_header}").strip())
+
+    preamble = sections[0][1] if sections and sections[0][0] == "" else ""
+    body = "\n\n".join(
+        f"## {h}\n{b}" if h else b for h, b in sections
+    )
+    skills_path.write_text(body if preamble else body)
+
+
+def _parse_headers(content: str) -> list[str]:
+    return [
+        line[3:].strip()
+        for line in content.splitlines()
+        if line.startswith("## ")
+    ]
+
+
+def _split_sections(content: str) -> list[tuple[str, str]]:
+    """Split content into (header, body) pairs. First tuple has header='' for preamble."""
+    parts = content.split("\n## ")
+    result = [("", parts[0])]
+    for part in parts[1:]:
+        lines = part.split("\n", 1)
+        header = lines[0].strip()
+        body = lines[1].strip() if len(lines) > 1 else ""
+        result.append((header, body))
+    return result

@@ -40,16 +40,42 @@ _SERVER_PUBKEY_FINGERPRINT = os.getenv(
 )
 
 
-def _hardware_id() -> str:
-    """Stable machine fingerprint (CPU id + MAC + hostname, hashed)."""
+def _machine_id() -> str:
+    """
+    Persistent machine identity stored in ~/.pill.ai/machine.id.
+
+    Generated once on first run, survives reboots and OS updates.
+    More stable than MAC (changes in Docker) or hostname (changes on reinstall).
+    Falls back to MAC+CPU+hostname hash if the file can't be written (read-only FS).
+    """
+    id_file = CACHE_DIR / "machine.id"
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    if id_file.exists():
+        mid = id_file.read_text().strip()
+        if mid:
+            return mid
+    try:
+        mid = str(uuid.uuid4())
+        id_file.write_text(mid)
+        return mid
+    except OSError:
+        return _hardware_id_fallback()
+
+
+def _hardware_id_fallback() -> str:
+    """Legacy fingerprint — used only when machine.id can't be written."""
     parts = [
         platform.node(),
-        str(uuid.getnode()),          # MAC address as integer
+        str(uuid.getnode()),
         platform.processor(),
         platform.machine(),
     ]
     raw = "|".join(p for p in parts if p)
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
+
+
+def _hardware_id() -> str:
+    return _machine_id()
 
 
 def _install_id() -> str:

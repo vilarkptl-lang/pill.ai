@@ -194,6 +194,18 @@ Instaladores
 
 ---
 
+## Fixes aplicados (2026-05-18)
+
+| # | Problema | Fix |
+|---|----------|-----|
+| 1 | SQLite se corrompe si Fly.io escala a >1 máquina | `fly.toml`: `max_machines = 1`, `min_machines_running = 1` |
+| 2 | Stripe webhook sin verificación de firma | `POST /webhooks/stripe` valida `Stripe-Signature` con `stripe.Webhook.construct_event()` antes de cualquier escritura |
+| 3 | `SkillsCompactor` con TTL/conteo no aplica a skills | Rediseñado: verifica similitud semántica por entrada nueva (sin TTL, sin umbral), merge in-place si duplicado |
+| 4 | `skills.md` en root era rastreado por git | Movido a `.pill.ai/skills.md` — ya cubierto por `.gitignore` |
+| 5 | Hardware fingerprint débil en Docker/VMs | `machine_id` persistente en `~/.pill.ai/machine.id` como identidad primaria; MAC+CPU+hostname solo como fallback si el FS es read-only |
+
+---
+
 ## Plan de ejecución — próximos pasos
 
 ### Inmediato (esta semana)
