@@ -28,6 +28,12 @@ _DANGEROUS_PATTERNS = [
 ]
 
 
+_SAFE_MODE_OFF_WARNING = (
+    "\033[33m[pill.ai] WARNING: safe_mode='off' — shell commands execute without "
+    "confirmation, including sudo and rm -rf. Set safe_mode='ask' to enable HITL.\033[0m"
+)
+
+
 class ShellTool:
     """
     Persistent shell session with:
@@ -37,12 +43,15 @@ class ShellTool:
     - Dangerous command detection
     """
 
-    def __init__(self, safe_mode: str = "ask", timeout: int = 60):
+    def __init__(self, safe_mode: str = "ask", timeout: int = 60, _suppress_warning: bool = False):
         self.safe_mode = safe_mode
         self.timeout = timeout
         self._sudo_password: Optional[str] = None
         self._process: Optional[subprocess.Popen] = None
         self._cwd = os.path.expanduser("~")
+        if safe_mode == "off" and not _suppress_warning:
+            import sys
+            print(_SAFE_MODE_OFF_WARNING, file=sys.stderr)
 
     # ── Public API ────────────────────────────────────────────────────────
 

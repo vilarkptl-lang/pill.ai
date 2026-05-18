@@ -24,11 +24,16 @@
 | 1.11 | `computer.*` namespace expandido: display, clipboard, files, vision (+ alias os, screen) | ✅ |
 | 1.12 | Tests OI compat: `tests/test_oi_compatibility.py` — 30+ assertions, offline-safe | ✅ |
 | 1.13 | **GitHub Actions CI** — ruff + pytest en push a main y PRs | ✅ |
-| 1.14 | README completo con tabla de costos, demo placeholder, instalación one-click | ✅ |
-| 1.15 | Deploy license server en Fly.io (1 máquina fija, SQLite persistente) | ⬜ |
-| 1.16 | Tests adicionales: `test_licensing.py`, `test_graph.py`, `test_llm_router.py` | ⬜ |
-| 1.17 | Página de precios `pill.ai/pricing` con Stripe Checkout | ⬜ |
-| 1.18 | **Docker sandbox básico** para shell_agent (aislamiento del host) | ⬜ |
+| 1.14 | README completo con tabla de costos, "Local Free Forever", sección Contributing | ✅ |
+| 1.15 | **Batch processing** — `BatchProcessor` + `pillai batch tasks.txt` | ✅ |
+| 1.16 | **Context injection** — `ContextInjector`: skills relevantes + compactación de historial | ✅ |
+| 1.17 | **`pillai run`** — demo interactivo guiado con 3 demos predefinidos + custom | ✅ |
+| 1.18 | **`.github/PULL_REQUEST_TEMPLATE.md`** | ✅ |
+| 1.19 | `safe_mode="off"` warnings en desktop y shell tools | ✅ |
+| 1.20 | Deploy license server en Fly.io (1 máquina fija, SQLite persistente) | ⬜ |
+| 1.21 | Tests adicionales: `test_licensing.py`, `test_graph.py`, `test_llm_router.py` | ⬜ |
+| 1.22 | Página de precios `pill.ai/pricing` con Stripe Checkout | ⬜ |
+| 1.23 | **Docker sandbox básico** para shell_agent (aislamiento del host) | ⬜ |
 
 **Costo típico por tarea en Fase 1:**
 ```

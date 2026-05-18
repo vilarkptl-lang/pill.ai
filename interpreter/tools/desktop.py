@@ -26,6 +26,12 @@ except ImportError:
     HAS_PIL = False
 
 
+_SAFE_MODE_OFF_WARNING = (
+    "\033[33m[pill.ai] WARNING: safe_mode='off' — desktop actions execute without "
+    "confirmation. Set safe_mode='ask' to enable human-in-the-loop.\033[0m"
+)
+
+
 class DesktopTool:
     """
     Full desktop control: mouse, keyboard, screenshots.
@@ -33,8 +39,11 @@ class DesktopTool:
     _confirm() when safe_mode != 'off'.
     """
 
-    def __init__(self, safe_mode: str = "ask"):
+    def __init__(self, safe_mode: str = "ask", _suppress_warning: bool = False):
         self.safe_mode = safe_mode
+        if safe_mode == "off" and not _suppress_warning:
+            import sys
+            print(_SAFE_MODE_OFF_WARNING, file=sys.stderr)
 
     # ── Mouse ──────────────────────────────────────────────────────────────
 

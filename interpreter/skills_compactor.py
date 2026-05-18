@@ -1,13 +1,19 @@
 """
-Semantic deduplication for skills.md entries.
+Semantic deduplication for skills.md entries + conversation compaction.
 
-Unlike the ContextCompactor in agentic-repo (which collapses conversation
-history by recency), skills are unique capabilities — they don't expire and
-shouldn't be collapsed by count. The correct trigger is semantic similarity:
-"does this new skill already exist under a different name?"
+Skills compaction:
+  Unlike the ContextCompactor in relay-master (which collapses conversation
+  history by recency), skills are unique capabilities — they don't expire and
+  shouldn't be collapsed by count. The correct trigger is semantic similarity:
+  "does this new skill already exist under a different name?"
 
-On each new skill, we ask the router to check against existing skill headers.
-No TTL, no count threshold, no in-memory cache needed.
+  On each new skill, we ask the router to check against existing skill headers.
+  No TTL, no count threshold, no in-memory cache needed.
+
+Conversation compaction:
+  Mirrors relay-master's context-compactor.js pattern. When conversation history
+  grows beyond a token budget, old messages are summarized in a single system
+  message and the tail is kept verbatim.
 """
 from __future__ import annotations
 

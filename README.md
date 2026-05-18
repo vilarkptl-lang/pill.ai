@@ -166,9 +166,22 @@ import smtplib, csv, datetime
 
 ---
 
-## Pricing (optional relay cloud)
+## Local Free Forever + Relay Cloud (optional)
 
-**Local use is free forever.** You only pay if you want relay cloud features (no own API keys, hosted execution, team sharing).
+**The core is 100% free, forever.** No account, no rate limit, no expiry.  
+You only pay for **relay cloud** — hosted execution without your own API keys, team sharing, and cron jobs.
+
+```
+Local use (your API keys)   →  FREE forever. All agents. All features. No limit.
+Relay cloud (our API keys)  →  Paid tiers. Optional. You bring nothing.
+```
+
+**FAQ:**
+- _Do I need to sign up?_ No. Run `pillai` and go.
+- _Will local mode ever be paywalled?_ No. It's in the license (BSL-1.1 → Apache 2.0 in 2028).
+- _What's the catch?_ You supply API keys (DeepSeek at $0.14/M is essentially free).
+
+## Pricing (optional relay cloud)
 
 | Tier | Price | Relay calls/day | Extras |
 |------|-------|-----------------|--------|
@@ -217,8 +230,31 @@ See [LICENSE](LICENSE) for full terms.
 
 ## Contributing
 
-Issues and PRs welcome: [github.com/vilarkptl-lang/pill.ai/issues](https://github.com/vilarkptl-lang/pill.ai/issues)
+Issues and PRs welcome.
 
+**Good first contributions:**
+- Add a new `computer.*` sub-module (mail, sms, calendar — see `OI_DIFF.md`)
+- Write tests: `tests/test_licensing.py`, `tests/test_graph.py`, `tests/test_llm_router.py`
+- Improve the Docker sandbox for `shell_agent`
+- Port an OI language runner (Ruby, JS, R) to `interpreter/tools/`
+
+**Setup:**
+```bash
+git clone https://github.com/vilarkptl-lang/pill.ai
+cd pill.ai
+pip install -e ".[dev]"
+playwright install chromium
+pytest tests/ -v          # run tests
+ruff check . --select E,F,W --ignore E501   # lint
+```
+
+**PR guidelines:**
+- One logical change per PR
+- `safe_mode` warnings must stay in desktop/shell tools
+- No secrets committed — use `.env` (gitignored)
+- Tests for new features preferred
+
+Issues: [github.com/vilarkptl-lang/pill.ai/issues](https://github.com/vilarkptl-lang/pill.ai/issues)  
 Commercial integrations: hello@pill.ai
 
 ---

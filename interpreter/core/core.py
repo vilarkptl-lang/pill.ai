@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from ..llm import LLMRouter
+from ..context_injector import ContextInjector
 from licensing.activation import require_license, get_license_status
 from licensing.models import LicenseInfo
 
@@ -172,6 +173,7 @@ class Interpreter:
         )
         self.computer.vision.set_router(self._router)
         self._graph = None   # lazy-loaded LangGraph
+        self._context_injector = ContextInjector(self._skills_path, self._router)
 
         self._print_banner()
         self._ask_permissions_on_first_run()
@@ -229,6 +231,32 @@ class Interpreter:
         self.messages = []
         self.last_messages_count = 0
 
+    def run_batch(
+        self,
+        tasks: List[str],
+        max_workers: int = 1,
+        shared_context: bool = False,
+        on_result=None,
+    ):
+        """
+        Run multiple tasks and return a BatchResult.
+        relay-master pattern: queue → execute → collect structured results.
+
+        Args:
+            tasks: list of task strings
+            max_workers: >1 uses parallel execution (each task gets own instance)
+            shared_context: keep conversation history across tasks (sequential only)
+            on_result: callback(TaskResult) after each task completes
+        """
+        from interpreter.batch import BatchProcessor
+        bp = BatchProcessor(
+            self,
+            max_workers=max_workers,
+            shared_context=shared_context,
+            on_result=on_result,
+        )
+        return bp.run(tasks)
+
     # ── OI API methods (parity) ───────────────────────────────────────────
 
     def wait(self):
@@ -280,8 +308,10 @@ class Interpreter:
 
     def _dispatch(self, message: str) -> str:
         graph = self._get_graph()
+        # Inject relevant skills + compact long history before each dispatch
+        enriched = self._context_injector.inject(self.messages, message)
         result = graph.invoke({
-            "messages": self.messages,
+            "messages": enriched,
             "task": message,
             "safe_mode": self.safe_mode,
             "license_tier": self.license.tier.value,

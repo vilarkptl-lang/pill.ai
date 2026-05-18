@@ -245,7 +245,7 @@ def _shell_node(state: AgentState, router: LLMRouter) -> AgentState:
         new_state["_approved_command"] = command
         return new_state
 
-    shell = ShellTool(safe_mode="off")  # HITL already handled above
+    shell = ShellTool(safe_mode="off", _suppress_warning=True)  # HITL already handled above
     result = shell.run(command)
     output = result["stdout"] or result["stderr"] or f"exit code {result['returncode']}"
     new_state = dict(state)
@@ -414,7 +414,7 @@ def _execute_desktop_actions(raw_json: str, safe_mode: str) -> str:
     except json.JSONDecodeError:
         return "[invalid JSON from desktop agent]"
 
-    desktop = DesktopTool(safe_mode=safe_mode)
+    desktop = DesktopTool(safe_mode=safe_mode, _suppress_warning=True)  # HITL checked upstream
     results = []
     for act in actions:
         try:
