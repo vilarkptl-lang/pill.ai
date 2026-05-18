@@ -1,11 +1,24 @@
 """
-Fork of OpenInterpreter/open-interpreter — interpreter/core/core.py
-Extended with:
-  - pill.ai license gating
-  - LangGraph multi-agent routing
-  - LiteLLM ultra-cheap model routing
-  - skills.md auto-update
-  - Confirmation hooks for dangerous actions
+pill.ai — ultra-cheap multi-agent computer AI.
+
+Inspired by OpenInterpreter (https://github.com/OpenInterpreter/open-interpreter).
+Implements the same public API (chat, reset, computer.*) with different internals:
+  - LangGraph multi-agent graph instead of single-loop LLM
+  - LiteLLM routing (DeepSeek V4 Pro / Gemini Flash / GPT-4o-mini)
+  - pill.ai license system (optional — local use is always free)
+  - Human-in-the-loop confirmation for dangerous actions
+
+What's the same as OI:
+  interpreter.chat(message)
+  interpreter.reset()
+  interpreter.computer.{browser,mouse,keyboard,terminal}
+  interpreter.auto_run, safe_mode, system_message, model
+
+What's different:
+  - Multi-agent routing via LangGraph instead of single ReAct loop
+  - LiteLLM instead of custom LLM classes
+  - BSL-1.1 license (→ Apache 2.0 on 2028-01-01)
+  - No streaming chunks by default (coming in Phase 2)
 """
 from __future__ import annotations
 
@@ -35,10 +48,10 @@ class Interpreter:
         context_window: int = 110_000,
         max_budget_per_task: float = 0.50,       # USD hard stop
     ):
-        # ── License check ─────────────────────────────────────────────────
+        # ── License (optional — local use is always free) ─────────────────
         if license_key:
             os.environ["PILLAI_LICENSE_KEY"] = license_key
-        self.license: LicenseInfo = require_license()
+        self.license: LicenseInfo = require_license()   # never raises; returns FREE if no key
 
         # ── Settings ──────────────────────────────────────────────────────
         self.model = model
@@ -77,7 +90,8 @@ class Interpreter:
 
     def chat(self, message: Optional[str] = None, display: bool = True, stream: bool = False):
         """Main entry point — send a message and get a response."""
-        if self.license.calls_remaining() == 0:
+        # daily_call_limit == 0 means unlimited (local free mode)
+        if self.license.daily_call_limit > 0 and self.license.calls_remaining() == 0:
             print(
                 f"[pill.ai] Daily call limit reached ({self.license.daily_call_limit}).\n"
                 "  Upgrade at https://pill.ai/pricing"
@@ -174,8 +188,11 @@ class Interpreter:
                 self.chat(msg)
 
     def _print_banner(self):
-        tier = self.license.tier.value.upper()
-        print(f"\n  pill.ai  [{tier}]  —  ultra-cheap multi-agent computer AI\n")
+        if self.license.key == "LOCAL":
+            mode = "LOCAL FREE"
+        else:
+            mode = self.license.tier.value.upper()
+        print(f"\n  pill.ai  [{mode}]  —  ultra-cheap multi-agent computer AI\n")
         if self.license.message:
             print(f"  {self.license.message}\n")
 

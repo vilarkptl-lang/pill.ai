@@ -8,13 +8,19 @@ Graph topology:
       ├─► vision_agent     (Gemini Flash — analyzes screenshots)
       ├─► browser_agent    (Playwright — web tasks)
       ├─► desktop_agent    (pyautogui — GUI control)
-      ├─► shell_agent      (terminal/sudo)
+      ├─► shell_agent      (terminal/sudo) ──► [human_approval?]
       └─► coder_agent      (generates code / dashboards)
               │
           END (returns output + optional new_skill)
+
+Human-in-the-loop (HITL):
+  shell_agent and desktop_agent flag dangerous proposed actions in state.
+  The router sends those to human_approval before executing.
+  safe_mode="off" bypasses HITL entirely.
 """
 from __future__ import annotations
 
+import re
 from typing import Annotated, Any, Optional, TypedDict
 
 try:
@@ -27,7 +33,7 @@ except ImportError:
 from interpreter.llm import LLMRouter
 from interpreter.tools.browser import BrowserTool
 from interpreter.tools.desktop import DesktopTool
-from interpreter.tools.shell import ShellTool
+from interpreter.tools.shell import ShellTool, _DANGEROUS_PATTERNS
 
 
 # ── State schema ─────────────────────────────────────────────────────────────
@@ -37,11 +43,34 @@ class AgentState(TypedDict):
     task: str
     safe_mode: str
     license_tier: str
-    route: Optional[str]           # which agent to call next
-    agent_output: str              # last agent's text output
-    output: str                    # final answer to user
-    new_skill: Optional[str]       # description to append to skills.md
+    route: Optional[str]            # which agent to call next
+    agent_output: str               # last agent's text output
+    output: str                     # final answer to user
+    new_skill: Optional[str]        # description to append to skills.md
     iteration: int
+    pending_command: Optional[str]  # HITL: command waiting for approval
+    pending_agent: Optional[str]    # HITL: which agent resumes after approval
+
+
+# ── HITL helpers ──────────────────────────────────────────────────────────────
+
+def _is_dangerous(text: str) -> bool:
+    return any(re.search(p, text) for p in _DANGEROUS_PATTERNS)
+
+
+def _hitl_confirm(action: str, safe_mode: str) -> bool:
+    """Print the proposed action and ask the user to approve. Returns True = proceed."""
+    if safe_mode == "off":
+        return True
+    print(f"\n[pill.ai] ⚠  Dangerous action proposed:\n  {action}")
+    try:
+        answer = input("  Allow? [y/N] ").strip().lower()
+    except EOFError:
+        answer = "n"
+    approved = answer in ("y", "yes")
+    if not approved:
+        print("  Blocked.\n")
+    return approved
 
 
 # ── Node implementations ──────────────────────────────────────────────────────
@@ -75,6 +104,31 @@ def _supervisor_node(state: AgentState, router: LLMRouter) -> AgentState:
     new_state = dict(state)
     new_state["route"] = route
     new_state["iteration"] = state.get("iteration", 0) + 1
+    return new_state
+
+
+def _human_approval_node(state: AgentState, router: LLMRouter) -> AgentState:
+    """
+    HITL gate: show the pending command/action to the user and ask for approval.
+    If approved, resume the originating agent. If denied, go to final.
+    """
+    pending = state.get("pending_command", "")
+    approved = _hitl_confirm(pending, state["safe_mode"])
+
+    new_state = dict(state)
+    if approved:
+        new_state["route"] = state.get("pending_agent", "final")
+        new_state["messages"] = state["messages"] + [
+            {"role": "system", "content": f"[HITL] User approved: {pending}"}
+        ]
+    else:
+        new_state["route"] = "final"
+        new_state["agent_output"] = f"Action blocked by user: {pending}"
+        new_state["messages"] = state["messages"] + [
+            {"role": "system", "content": f"[HITL] User blocked: {pending}"}
+        ]
+    new_state["pending_command"] = None
+    new_state["pending_agent"] = None
     return new_state
 
 
@@ -122,7 +176,7 @@ def _browser_node(state: AgentState, router: LLMRouter) -> AgentState:
 
 
 def _desktop_node(state: AgentState, router: LLMRouter) -> AgentState:
-    """Desktop agent: clicks, types, hotkeys."""
+    """Desktop agent: clicks, types, hotkeys. Flags mass-click patterns for HITL."""
     system = (
         "You control a desktop via pyautogui. Generate JSON action list.\n"
         "Actions: [{\"action\": \"click\", \"x\": 100, \"y\": 200}, "
@@ -137,6 +191,24 @@ def _desktop_node(state: AgentState, router: LLMRouter) -> AgentState:
         {"role": "user", "content": state["task"]},
     ]
     raw = router.complete(messages)
+
+    # Flag mass-click (>10 clicks) for HITL
+    import json, re as _re
+    match = _re.search(r"\[.*\]", raw, _re.DOTALL)
+    if match and state["safe_mode"] != "off":
+        try:
+            actions = json.loads(match.group())
+            click_count = sum(1 for a in actions if a.get("action") == "click")
+            if click_count > 10:
+                new_state = dict(state)
+                new_state["pending_command"] = f"{click_count} automated clicks on desktop"
+                new_state["pending_agent"] = "desktop_execute"
+                new_state["route"] = "human_approval"
+                new_state["_desktop_pending_raw"] = raw
+                return new_state
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     result = _execute_desktop_actions(raw, state["safe_mode"])
     new_state = dict(state)
     new_state["agent_output"] = result
@@ -145,22 +217,40 @@ def _desktop_node(state: AgentState, router: LLMRouter) -> AgentState:
 
 
 def _shell_node(state: AgentState, router: LLMRouter) -> AgentState:
-    """Shell agent: generates and runs terminal commands."""
-    system = (
-        "Generate a shell command to accomplish the task. "
-        "Return ONLY the shell command, nothing else."
-    )
-    messages = [
-        {"role": "system", "content": system},
-        *state["messages"],
-        {"role": "user", "content": state["task"]},
-    ]
-    command = router.complete(messages).strip()
-    shell = ShellTool(safe_mode=state["safe_mode"])
+    """
+    Shell agent: generates terminal command. Routes to human_approval if dangerous.
+    On resume from HITL approval, executes the approved command directly.
+    """
+    # Resumed from human_approval — state has the approved command in messages
+    if state.get("pending_command") is None and state.get("_approved_command"):
+        command = state["_approved_command"]
+    else:
+        system = (
+            "Generate a shell command to accomplish the task. "
+            "Return ONLY the shell command, nothing else."
+        )
+        messages = [
+            {"role": "system", "content": system},
+            *state["messages"],
+            {"role": "user", "content": state["task"]},
+        ]
+        command = router.complete(messages).strip()
+
+    # HITL check: dangerous command needs user approval
+    if _is_dangerous(command) and state["safe_mode"] != "off":
+        new_state = dict(state)
+        new_state["pending_command"] = command
+        new_state["pending_agent"] = "shell"
+        new_state["route"] = "human_approval"
+        new_state["_approved_command"] = command
+        return new_state
+
+    shell = ShellTool(safe_mode="off")  # HITL already handled above
     result = shell.run(command)
     output = result["stdout"] or result["stderr"] or f"exit code {result['returncode']}"
     new_state = dict(state)
     new_state["agent_output"] = output
+    new_state["_approved_command"] = None
     new_state["messages"] = state["messages"] + [
         {"role": "assistant", "content": f"[shell] $ {command}\n{output}"}
     ]
@@ -168,7 +258,7 @@ def _shell_node(state: AgentState, router: LLMRouter) -> AgentState:
 
 
 def _coder_node(state: AgentState, router: LLMRouter) -> AgentState:
-    """Coder agent: writes Python code, optionally runs it."""
+    """Coder agent: writes Python code, optionally runs it. Always updates skills.md."""
     system = (
         "Write clean Python 3.12+ code to accomplish the task.\n"
         "If the task mentions 'dashboard', use Streamlit.\n"
@@ -187,7 +277,8 @@ def _coder_node(state: AgentState, router: LLMRouter) -> AgentState:
         shell = ShellTool(safe_mode=state["safe_mode"])
         run_result = shell.run_python(code)
         output = run_result["stdout"] or run_result["stderr"]
-        skill_desc = f"Auto-generated skill\n\nTask: {state['task'][:200]}\n\n```python\n{code[:1000]}\n```"
+        # Always generate a skill description for skills.md
+        skill_desc = f"Task: {state['task'][:200]}\n\n```python\n{code[:1000]}\n```"
     else:
         output = code_response
 
@@ -220,32 +311,55 @@ def build_graph(router: LLMRouter):
 
     g = StateGraph(AgentState)
 
-    g.add_node("supervisor", lambda s: _supervisor_node(s, router))
-    g.add_node("vision",     lambda s: _vision_node(s, router))
-    g.add_node("browser",    lambda s: _browser_node(s, router))
-    g.add_node("desktop",    lambda s: _desktop_node(s, router))
-    g.add_node("shell",      lambda s: _shell_node(s, router))
-    g.add_node("coder",      lambda s: _coder_node(s, router))
-    g.add_node("final",      lambda s: _final_node(s, router))
+    g.add_node("supervisor",      lambda s: _supervisor_node(s, router))
+    g.add_node("human_approval",  lambda s: _human_approval_node(s, router))
+    g.add_node("vision",          lambda s: _vision_node(s, router))
+    g.add_node("browser",         lambda s: _browser_node(s, router))
+    g.add_node("desktop",         lambda s: _desktop_node(s, router))
+    g.add_node("shell",           lambda s: _shell_node(s, router))
+    g.add_node("coder",           lambda s: _coder_node(s, router))
+    g.add_node("final",           lambda s: _final_node(s, router))
 
     g.set_entry_point("supervisor")
 
-    def _route(state: AgentState) -> str:
-        if state.get("iteration", 0) >= 8:   # prevent infinite loops
+    def _route_from_supervisor(state: AgentState) -> str:
+        if state.get("iteration", 0) >= 8:
             return "final"
         return state.get("route", "final")
 
-    g.add_conditional_edges("supervisor", _route, {
-        "vision":  "vision",
-        "browser": "browser",
-        "desktop": "desktop",
-        "shell":   "shell",
-        "coder":   "coder",
-        "final":   "final",
+    g.add_conditional_edges("supervisor", _route_from_supervisor, {
+        "vision":          "vision",
+        "browser":         "browser",
+        "desktop":         "desktop",
+        "shell":           "shell",
+        "coder":           "coder",
+        "final":           "final",
+        "human_approval":  "human_approval",
     })
 
-    # After each specialist, go back to supervisor (or finish)
-    for node in ("vision", "browser", "desktop", "shell", "coder"):
+    def _route_from_hitl(state: AgentState) -> str:
+        return state.get("route", "final")
+
+    # Shell/desktop can request HITL mid-execution
+    def _route_from_shell(state: AgentState) -> str:
+        if state.get("pending_command"):
+            return "human_approval"
+        return "supervisor"
+
+    def _route_from_desktop(state: AgentState) -> str:
+        if state.get("pending_command"):
+            return "human_approval"
+        return "supervisor"
+
+    g.add_conditional_edges("shell",   _route_from_shell,   {"human_approval": "human_approval", "supervisor": "supervisor"})
+    g.add_conditional_edges("desktop", _route_from_desktop, {"human_approval": "human_approval", "supervisor": "supervisor"})
+    g.add_conditional_edges("human_approval", _route_from_hitl, {
+        "shell":    "shell",
+        "desktop":  "desktop",
+        "final":    "final",
+    })
+
+    for node in ("vision", "browser", "coder"):
         g.add_edge(node, "supervisor")
 
     g.add_edge("final", END)

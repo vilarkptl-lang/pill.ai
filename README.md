@@ -1,11 +1,16 @@
-# pill.ai — UltraCheap Computer AI
-
-> **Multi-agent computer-use AI that costs 95–99% less than GPT-4o.**  
-> Controls your desktop, browser, and terminal. Powered by DeepSeek V4 Pro + Gemini Flash.
+# pill.ai — Ultra-Cheap Computer AI
 
 [![License: BSL-1.1](https://img.shields.io/badge/License-BSL--1.1-orange.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://python.org)
-[![LangGraph](https://img.shields.io/badge/LangGraph-latest-green.svg)](https://github.com/langchain-ai/langgraph)
+[![CI](https://github.com/vilarkptl-lang/pill.ai/actions/workflows/ci.yml/badge.svg)](https://github.com/vilarkptl-lang/pill.ai/actions)
+[![LangGraph](https://img.shields.io/badge/LangGraph-multi--agent-green.svg)](https://github.com/langchain-ai/langgraph)
+
+> **Multi-agent computer-use AI. 95–99% cheaper than GPT-4o.**  
+> Controls your desktop, browser, and terminal.  
+> **No account required. No license key. Just run.**
+
+<!-- demo placeholder -->
+<!-- ![pill.ai demo](https://pill.ai/demo.gif) -->
 
 ---
 
@@ -13,50 +18,49 @@
 
 **Linux / macOS:**
 ```bash
-curl -sSL https://get.pill.ai | bash
+curl -sSL https://raw.githubusercontent.com/vilarkptl-lang/pill.ai/main/installers/install.sh | bash
 ```
 
 **Windows:**
 ```
-https://get.pill.ai/install.bat
+curl -O https://raw.githubusercontent.com/vilarkptl-lang/pill.ai/main/installers/install.bat && install.bat
 ```
 
-**From source (developers):**
+**pip (developers):**
+```bash
+pip install pill-ai
+playwright install chromium
+```
+
+**From source:**
 ```bash
 git clone https://github.com/vilarkptl-lang/pill.ai
-cd pill.ai
-pip install -e ".[dashboard]"
-playwright install chromium
+cd pill.ai && pip install -e . && playwright install chromium
 ```
 
 ---
 
-## Quick Start
+## Quick start — no account needed
 
 ```bash
-# Interactive chat
+# Interactive mode
 pillai
 
 # One-shot task
-pillai "open Chrome, go to gmail.com, and read the first unread email"
-
-# Activate your license
-pillai activate PILLAI-XXXX-XXXX-XXXX-XXXX
-
-# Check status
-pillai status
+pillai "take a screenshot and describe what you see"
+pillai "open Chrome, go to news.ycombinator.com, summarize top 5 stories"
+pillai "find all PDF files in ~/Downloads and list their sizes"
 ```
 
-**Python API:**
+**Python API** (API-compatible with [Open Interpreter](https://github.com/OpenInterpreter/open-interpreter)):
 ```python
 from interpreter import Interpreter
 
-ai = Interpreter(license_key="PILLAI-XXXX-XXXX-XXXX-XXXX")
+ai = Interpreter()   # no license key required
+ai.chat("open a browser, go to github.com, and tell me the trending repos")
+ai.chat("write a Python script that downloads my emails as CSV")
 
-# Chat
-ai.chat("take a screenshot and describe what you see")
-
-# Direct tool use
+# Direct tool access
 ai.computer.browser.goto("https://example.com")
 ai.computer.mouse.click(100, 200)
 ai.computer.terminal.run("ls -la ~/Documents")
@@ -66,16 +70,17 @@ ai.computer.terminal.run("ls -la ~/Documents")
 
 ## What it can do
 
-| Capability | How |
-|-----------|-----|
-| **Click anything on screen** | pyautogui (left, right, double, drag & drop) |
-| **Type and use hotkeys** | pyautogui keyboard control |
-| **Browse the web** | Playwright full browser |
-| **Run terminal commands** | subprocess + sudo support |
-| **See the screen** | Gemini Flash vision (screenshot analysis) |
-| **Write & run code** | Python exec with Streamlit dashboards |
-| **Remember skills** | Auto-updated `skills.md` |
-| **Schedule tasks** | Cron integration (Fase 2) |
+| Capability | Tool |
+|-----------|------|
+| Click anything on screen | pyautogui |
+| Type and use hotkeys | pyautogui |
+| Browse the web, fill forms, scrape | Playwright |
+| Run terminal commands + sudo | subprocess |
+| Analyze screenshots, OCR | Gemini 2.0 Flash |
+| Write and execute Python code | Python exec |
+| Remember skills across sessions | `~/.pill.ai/skills.md` |
+
+**Human-in-the-loop safety:** pill.ai asks for confirmation before `sudo`, `rm -rf`, or any destructive action. You can set `safe_mode="off"` to disable.
 
 ---
 
@@ -88,164 +93,130 @@ ai.computer.terminal.run("ls -la ~/Documents")
 | Write + run Python script | $0.80 | $0.65 | **$0.012** | **98%** |
 | Desktop task (5 clicks + forms) | $2.00 | $1.80 | **$0.025** | **99%** |
 
-> Routing: 90% DeepSeek V4 Pro ($0.14/M tokens) + Gemini Flash ($0.10/M tokens) + GPT-4o-mini fallback only.
+> **Routing:** 90% DeepSeek V4 Pro ($0.14/M) · 10% Gemini 2.0 Flash ($0.10/M) · fallback GPT-4o-mini  
+> You bring your own API keys — no markup, no hidden fees.
 
 ---
 
-## Multi-agent architecture
+## Architecture
 
 ```
 User Input
     │
     ▼
-Supervisor Agent (DeepSeek V4 Pro)
-    │  Routes to the right specialist
-    ├──► Vision Agent      — Gemini Flash — analyzes screenshots
-    ├──► Browser Agent     — Playwright   — web navigation & scraping
-    ├──► Desktop Agent     — pyautogui    — GUI clicks, drag-drop
-    ├──► Shell Agent       — subprocess   — terminal + sudo
-    └──► Coder Agent       — Python exec  — code + dashboards
+Supervisor Agent  (DeepSeek V4 Pro — routes + reasons)
+    │
+    ├──► Vision Agent    — Gemini 2.0 Flash — screenshot analysis
+    ├──► Browser Agent   — Playwright       — web navigation
+    ├──► Desktop Agent   — pyautogui        — GUI clicks, drag-drop
+    ├──► Shell Agent     — subprocess       — terminal + sudo
+    │         │
+    │    [Human approval? ──► yes/no]
+    │
+    └──► Coder Agent     — Python exec      — code + dashboards
               │
               ▼
-         Final answer + skills.md update
+         ~/.pill.ai/skills.md  (auto-updated, semantic dedup)
 ```
 
-Built with **LangGraph StateGraph** — explicit control flow, no black boxes.
-
----
-
-## Pricing
-
-| Tier | Price | Daily calls | Features |
-|------|-------|-------------|----------|
-| **Free** | $0 | 100 | All core features. Service level not guaranteed. |
-| **Starter** | $9/mo | 1,000 | + API access + cron jobs |
-| **Pro** | $29/mo | 10,000 | + multi-session + skills marketplace |
-| **Enterprise** | $199/mo | Unlimited | + SLA + dedicated support + on-premise |
-
-**Get a license key:** [pill.ai/pricing](https://pill.ai/pricing)
-
----
-
-## License key management
-
-```bash
-# Activate
-pillai activate PILLAI-ABCD-EFGH-IJKL-MNOP
-
-# Check tier and remaining calls
-pillai status
-
-# Deactivate this seat (frees up the license for another machine)
-pillai deactivate
-```
-
-License keys are validated against `license.pill.ai`. The system works offline for up to 7 days using a cached validation. The service owner can:
-- Revoke or suspend individual keys
-- Disable the free tier globally
-- Set per-key call limits and feature flags
-
----
-
-## Self-hosting the license server (enterprise)
-
-```bash
-# Install server deps
-pip install "pill-ai[server]"
-
-# Set admin secret
-export PILLAI_ADMIN_SECRET="your-secret-here"
-export PILLAI_DB="/data/license.db"
-
-# Start
-pillai server
-# or: uvicorn licensing.server:app --host 0.0.0.0 --port 8080
-
-# Point clients to your server
-export PILLAI_LICENSE_SERVER="https://your-license-server.com"
-```
-
-**Admin API:**
-```bash
-# Create key
-curl -X POST https://your-server/admin/keys \
-  -H "X-Admin-Secret: your-secret" \
-  -d '{"email":"user@example.com","tier":"pro","daily_call_limit":10000}'
-
-# Suspend a key
-curl -X PATCH https://your-server/admin/keys/PILLAI-XXXX \
-  -H "X-Admin-Secret: your-secret" \
-  -d '{"status":"suspended","message":"Payment failed"}'
-
-# Disable free tier globally
-curl -X PUT https://your-server/admin/settings/free_tier_enabled \
-  -H "X-Admin-Secret: your-secret" \
-  -d '{"value":"false"}'
-
-# View all keys
-curl https://your-server/admin/keys -H "X-Admin-Secret: your-secret"
-```
+Built with **LangGraph StateGraph** — explicit routing, no black boxes, human-in-the-loop at every dangerous step.
 
 ---
 
 ## Environment variables
 
+You need at least one LLM API key:
+
+```bash
+export DEEPSEEK_API_KEY="sk-..."     # main model — get at platform.deepseek.com
+export GEMINI_API_KEY="AI..."        # vision — get at aistudio.google.com (free tier)
+export OPENAI_API_KEY="sk-..."       # fallback only — optional
+```
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PILLAI_LICENSE_KEY` | — | License key (alternative to `pillai activate`) |
-| `PILLAI_LICENSE_SERVER` | `https://license.pill.ai` | License validation endpoint |
-| `PILLAI_GRACE_DAYS` | `7` | Days to work offline after last validation |
-| `PILLAI_CACHE_DIR` | `~/.pill.ai` | Local cache and config directory |
-| `DEEPSEEK_API_KEY` | — | DeepSeek API key |
-| `GEMINI_API_KEY` | — | Google Gemini API key |
-| `OPENAI_API_KEY` | — | OpenAI API key (fallback only) |
+| `DEEPSEEK_API_KEY` | — | DeepSeek API key (main model) |
+| `GEMINI_API_KEY` | — | Google Gemini API key (vision) |
+| `OPENAI_API_KEY` | — | OpenAI API key (fallback, optional) |
+| `PILLAI_LICENSE_KEY` | — | Optional relay license key |
+| `PILLAI_LICENSE_SERVER` | `https://license.pill.ai` | License server URL |
+| `PILLAI_SAFE_MODE` | `ask` | `ask` / `off` / `auto` |
 
 ---
 
 ## skills.md — auto-generated skill registry
 
-Every time you complete a new type of task, pill.ai appends to `skills.md`:
+Every time you complete a new type of task, pill.ai appends to `~/.pill.ai/skills.md`.  
+Duplicate or semantically similar skills are merged automatically.
 
 ```markdown
 ## Send daily email report
 _Added: 2026-05-18_
-Agent: coder_agent
-Schedule: 0 8 * * *  (daily at 8am)
 
-Reads sales CSV, generates HTML report, sends via SMTP.
+Task: read sales CSV, generate HTML report, send via SMTP
+python
+import smtplib, csv, datetime
+...
 ```
 
-You can also manually run: `pillai "update skills.md with what you know"`
+---
+
+## Pricing (optional relay cloud)
+
+**Local use is free forever.** You only pay if you want relay cloud features (no own API keys, hosted execution, team sharing).
+
+| Tier | Price | Relay calls/day | Extras |
+|------|-------|-----------------|--------|
+| **Free** | $0 | Unlimited local | All core features, your own API keys |
+| **Starter** | $9/mo | 1,000 | Hosted relay + cron jobs + API |
+| **Pro** | $29/mo | 10,000 | Multi-session + skills marketplace |
+| **Enterprise** | $199/mo | Unlimited | SLA + dedicated support + on-premise |
+
+[Get a relay license →](https://pill.ai/pricing)
 
 ---
 
-## Fork policy and commercial use
+## Inspired by Open Interpreter
 
-This project is licensed under **BSL-1.1** (Business Source License 1.1).
+pill.ai implements the same public API as [Open Interpreter](https://github.com/OpenInterpreter/open-interpreter) (`chat()`, `reset()`, `computer.*`, `safe_mode`) so existing OI users can migrate without changing code.
 
-- ✅ **Free** for personal and non-commercial use
-- ✅ **Free** for developers evaluating the software
-- ❌ **Requires a commercial license** for SaaS, hosted services, or products with >5 employees
-- 🔄 **Converts to Apache 2.0** on January 1, 2028
+**What's different under the hood:**
 
-If you fork this repository, the license terms still apply to your fork.  
-Commercial licenses: [pill.ai/pricing](https://pill.ai/pricing)
+| | Open Interpreter | pill.ai |
+|--|-----------------|---------|
+| Agent loop | Single ReAct loop | LangGraph multi-agent StateGraph |
+| LLM layer | Custom classes | LiteLLM (multi-provider routing) |
+| Default model | GPT-4o | DeepSeek V4 Pro (95% cheaper) |
+| Human-in-the-loop | Inline confirmation | Explicit HITL graph node |
+| Skills memory | None | `~/.pill.ai/skills.md` with semantic dedup |
+| License | MIT | BSL-1.1 → Apache 2.0 (2028) |
 
 ---
 
-## Roadmap
+## License
 
-See [roadmap.md](roadmap.md) for the full plan.
+**BSL-1.1** (Business Source License 1.1)
 
-**TL;DR:**
-- **Now (0–3mo):** MVP + license system + multi-agent + one-click install
-- **Soon (3–9mo):** Docker sandboxing, cron jobs, billing portal, relay-master cloud
-- **Later (9–18mo):** Ollama local mode, mobile app, VSCode extension
+- ✅ Free for personal and non-commercial use
+- ✅ Free for developers and evaluation
+- ❌ Requires a commercial license for SaaS/hosted products with >5 employees
+- 🔄 Converts to **Apache 2.0 on January 1, 2028**
+
+See [LICENSE](LICENSE) for full terms.
 
 ---
 
 ## Contributing
 
-Bug reports and feature requests: [GitHub Issues](https://github.com/vilarkptl-lang/pill.ai/issues)
+Issues and PRs welcome: [github.com/vilarkptl-lang/pill.ai/issues](https://github.com/vilarkptl-lang/pill.ai/issues)
 
-Commercial contributions and integrations: hello@pill.ai
+Commercial integrations: hello@pill.ai
+
+---
+
+## Roadmap
+
+See [roadmap.md](roadmap.md) — TL;DR:
+- **0–2 mo:** Open-source MVP, Docker sandbox, tests
+- **2–6 mo:** Dashboard, auto-update, relay cloud, skills marketplace
+- **6+ mo:** Ollama local ($0/task), mobile app, enterprise on-premise, Apache 2.0
