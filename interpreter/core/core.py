@@ -67,6 +67,7 @@ class Interpreter:
 
         # ── Skills ────────────────────────────────────────────────────────
         self._skills_path = Path("skills.md")
+        self._compactor = None   # lazy-loaded SkillsCompactor
 
         self._print_banner()
         self._ask_permissions_on_first_run()
@@ -119,13 +120,29 @@ class Interpreter:
         return self._graph
 
     def _update_skills(self, description: str):
-        """Append new skill entry to skills.md."""
+        """Append new skill entry to skills.md, compacting if entries exceed threshold."""
         import datetime
+        from interpreter.skills_compactor import SkillsCompactor, COMPACT_THRESHOLD
+
+        if self._compactor is None:
+            self._compactor = SkillsCompactor(self._router)
+
         entry = (
             f"\n## {description.split(chr(10))[0][:80]}\n"
             f"_Added: {datetime.date.today()}_\n\n"
             f"{description}\n"
         )
+
+        existing = self._skills_path.read_text() if self._skills_path.exists() else ""
+        current_entries = [e for e in existing.split("\n## ") if e.strip()]
+
+        if len(current_entries) >= COMPACT_THRESHOLD:
+            compacted = self._compactor.compact(current_entries)
+            if compacted:
+                header = existing.split("\n## ")[0] if existing else ""
+                self._skills_path.write_text(header + "\n" + compacted + entry)
+                return
+
         with open(self._skills_path, "a") as f:
             f.write(entry)
 

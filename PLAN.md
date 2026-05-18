@@ -204,23 +204,24 @@ Instaladores
 licensing/server.py → Fly.io shared-cpu-1x (gratis hasta 3M req/mes)
 ```
 
-Archivos a crear:
-- `Dockerfile` para el servidor FastAPI
-- `fly.toml` con volumen SQLite persistente
-- `fly secrets set ADMIN_SECRET=...`
-- DNS: `licenses.pill.ai` → CNAME a `pill-ai-licenses.fly.dev`
+Archivos creados:
+- `licensing/Dockerfile` ✅
+- `licensing/requirements.txt` ✅
+- `fly.toml` ✅
+- `fly secrets set ADMIN_SECRET=...` ← pendiente ejecutar
+- DNS: `licenses.pill.ai` → CNAME a `pill-ai-licensing.fly.dev` ← pendiente
 
 #### 2. Integración relay-master (pendiente acceso al repo)
 
 Módulos identificados para integrar:
 
-| Módulo relay-master | Dónde integra en pill.ai | Qué aporta |
-|--------------------|--------------------------|------------|
-| `batch_processor` | `licensing/client.py` → `report_usage()` | acumula reportes, envía en bulk (reduce latencia) |
-| `semantic_compactor` | `interpreter/core/core.py` → `_update_skills()` | comprime skills.md semánticamente antes de append |
-| `cache_layer` | `licensing/client.py` → `_load_cache()` | reemplaza caché en disco por TTL configurable + invalidación por evento |
+| Módulo agentic-repo | Dónde integra en pill.ai | Estado |
+|--------------------|--------------------------|--------|
+| `context-compactor.js` → portado a `interpreter/skills_compactor.py` | `interpreter/core/core.py` → `_update_skills()` | ✅ integrado |
+| `batch_processor` | `licensing/client.py` → `report_usage()` | ❌ no existe en agentic-repo — diseñar desde cero si se necesita |
+| `cache_layer` (reemplazar disco) | `licensing/client.py` | ❌ no aplica — el caché de 7 días en disco es más robusto para validación offline |
 
-Para integrar: necesito acceso de lectura al repo `vilarkptl-lang/agentic-repo` en esta sesión, o que me pases los 3 archivos directamente.
+**Lo que se portó:** `SkillsCompactor` (in-memory, TTL 90s, umbral 12 entradas) colapsa entradas semánticamente similares en `skills.md` antes de hacer append. Si hay <12 entradas, append directo sin llamada LLM.
 
 #### 3. Stripe billing
 
