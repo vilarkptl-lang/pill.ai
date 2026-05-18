@@ -1,8 +1,8 @@
 # pill.ai — Plan de ejecución
 
-> Documento de estado, arquitectura y roadmap del proyecto.  
+> Documento de estado, arquitectura y roadmap interno del proyecto.  
 > Branch activo: `claude/add-licensing-system-KsFAw`  
-> Último commit: `e564389` — 18 mayo 2026
+> Último commit: `1933338` — 18 mayo 2026
 
 ---
 
@@ -12,47 +12,67 @@
 
 ```
 pill.ai/
-├── .env.example                  ← variables de entorno (keys, admin secret)
-├── .gitignore
-├── LICENSE                       ← BSL-1.1 → Apache 2.0 el 2028-01-01
-├── README.md                     ← documentación pública + tabla de costos
-├── PLAN.md                       ← este documento
-├── pyproject.toml                ← paquete `pill-ai`, entry point `pillai`
-├── roadmap.md                    ← fases 1–3 detalladas
-├── skills.md                     ← auto-generado por coder_agent
+├── .env.example                   ← variables de entorno (API keys, admin secret)
+├── .gitignore                     ← excluye .env, license.db, .pill.ai/
+├── LICENSE                        ← BSL-1.1 → Apache 2.0 el 2028-01-01
+├── README.md                      ← instalación one-click, costos, tabla OI vs pill.ai
+├── PLAN.md                        ← este documento
+├── fly.toml                       ← deploy Fly.io (max_machines=1, volumen /data)
+├── pyproject.toml                 ← paquete `pill-ai`, entry point `pillai`
+├── roadmap.md                     ← 3 fases: 0-2mo / 2-6mo / 6+mo
+│
+├── .github/
+│   └── workflows/
+│       └── ci.yml                 ← ruff + pytest + docker build en push/PR
 │
 ├── agents/
-│   ├── __init__.py               ← exporta build_graph()
-│   └── graph.py                  ← LangGraph StateGraph completo
+│   ├── __init__.py                ← exporta build_graph()
+│   └── graph.py                   ← LangGraph StateGraph + nodo human_approval
 │
 ├── interpreter/
 │   ├── __init__.py
-│   ├── interpreter.py            ← singleton `interpreter = Interpreter()`
-│   ├── llm.py                    ← LiteLLM router (DeepSeek / Gemini / GPT-4o-mini)
+│   ├── interpreter.py             ← singleton `interpreter = Interpreter()`
+│   ├── llm.py                     ← LiteLLM router (DeepSeek / Gemini / GPT-4o-mini)
+│   ├── skills_compactor.py        ← deduplicación semántica de skills.md
 │   ├── core/
 │   │   ├── __init__.py
-│   │   └── core.py               ← clase Interpreter: chat(), dispatch(), skills
+│   │   └── core.py                ← Interpreter: chat(), dispatch(), skills
 │   └── tools/
 │       ├── __init__.py
-│       ├── browser.py            ← Playwright sync wrapper
-│       ├── desktop.py            ← pyautogui: click, drag, hotkey, screenshot
-│       └── shell.py              ← subprocess persistente, sudo, patrones peligrosos
+│       ├── browser.py             ← Playwright sync wrapper
+│       ├── desktop.py             ← pyautogui: click, drag, hotkey, screenshot
+│       └── shell.py               ← subprocess, sudo, patrones peligrosos
 │
 ├── licensing/
-│   ├── __init__.py               ← exporta LicenseClient, activate, deactivate
-│   ├── activation.py             ← activate(), deactivate(), require_license()
-│   ├── client.py                 ← hardware fingerprint, caché offline 7 días
-│   ├── models.py                 ← LicenseTier, LicenseStatus, LicenseInfo
-│   └── server.py                 ← FastAPI: /v1/validate, /v1/usage, /admin/*
+│   ├── __init__.py                ← exporta LicenseClient, activate, deactivate
+│   ├── activation.py              ← require_license() (no bloquea), require_relay()
+│   ├── client.py                  ← machine_id persistente, caché offline 7 días
+│   ├── models.py                  ← LicenseTier, LicenseStatus, LicenseInfo
+│   ├── server.py                  ← FastAPI: /v1/validate, /v1/usage, /admin/*, /webhooks/stripe
+│   ├── Dockerfile                 ← imagen para Fly.io
+│   └── requirements.txt           ← fastapi, uvicorn, pydantic, httpx, stripe
 │
 ├── pill_ai/
 │   ├── __init__.py
-│   └── cli.py                    ← pillai activate|deactivate|status|server|run
+│   └── cli.py                     ← pillai activate|deactivate|status|server|run
 │
 └── installers/
-    ├── install.sh                ← one-click Linux/macOS
-    └── install.bat               ← one-click Windows
+    ├── install.sh                 ← one-click Linux/macOS
+    └── install.bat                ← one-click Windows
 ```
+
+---
+
+## Política de licenciamiento
+
+```
+Local use   →  SIEMPRE GRATIS, sin cuenta, sin rate limit, sin network call
+Relay cloud →  requiere license key (Starter $9/mo+)
+```
+
+- `require_license()` — nunca bloquea. Sin key → devuelve `LicenseInfo(key="LOCAL", daily_call_limit=0)`.
+- `require_relay()` — único hard gate. Solo lo llaman features de cloud. Hace `SystemExit` si no hay key válida.
+- `daily_call_limit=0` significa ilimitado (local free mode).
 
 ---
 
@@ -61,57 +81,67 @@ pill.ai/
 ```
 Usuario
   └─► Interpreter.chat(message)
-        └─► require_license()          ← bloquea si no hay licencia válida
+        └─► require_license()          ← nunca bloquea; devuelve FREE si no hay key
               └─► LangGraph graph
                     │
                     ▼
               [ supervisor_node ]       ← DeepSeek V4 Pro
-                    │   analiza tarea, elige ruta, razona
+                    │   analiza tarea, elige ruta, incrementa iteración
                     │
                     ├──► [ vision_agent ]      ← Gemini 2.0 Flash
                     │        screenshot_and_describe()
-                    │        describe_image(), OCR visual
+                    │        OCR visual, análisis de UI
                     │
                     ├──► [ browser_agent ]     ← DeepSeek V4 Pro
-                    │        BrowserTool: goto, click, fill, text
+                    │        BrowserTool: goto, click, fill, extract_text
                     │        Playwright sync → headless Chromium
                     │
-                    ├──► [ desktop_agent ]     ← Gemini 2.0 Flash (visión)
+                    ├──► [ desktop_agent ]     ← DeepSeek V4 Pro
                     │        DesktopTool: click, drag, scroll, type, hotkey
                     │        pyautogui + screenshot_and_describe()
+                    │        ⚠ >10 clicks → human_approval
                     │
                     ├──► [ shell_agent ]       ← DeepSeek V4 Pro
                     │        ShellTool: run(), run_python()
-                    │        subprocess persistente, sudo caching
-                    │        detección de comandos peligrosos (rm -rf, etc.)
+                    │        sudo caching, streaming output
+                    │        ⚠ rm -rf / sudo / mkfs → human_approval
+                    │              │
+                    │         [ human_approval_node ]
+                    │              │  muestra la acción al usuario
+                    │              │  y/n → continúa o va a final
                     │
                     └──► [ coder_agent ]       ← DeepSeek V4 Pro
                               genera código Python/bash
                               exec() con captura de salida
-                              → appends a skills.md si nueva habilidad
+                              siempre actualiza ~/.pill.ai/skills.md
+                              (deduplicación semántica via skills_compactor.py)
                               │
                               ▼
-                        [ final_node ]
+                        [ final_node ]          ← DeepSeek V4 Pro
+                              sintetiza output de todos los agentes
                               │
                               ▼
                         respuesta al usuario
 
-Límite: max 8 iteraciones por tarea (loop guard)
+Loop guard: max 8 iteraciones supervisor→specialist→supervisor
+safe_mode="off": omite human_approval en todos los nodos
 ```
 
-### Estado del AgentState (LangGraph TypedDict)
+### AgentState (LangGraph TypedDict)
 
 | Campo | Tipo | Descripción |
 |-------|------|-------------|
-| `messages` | `list[dict]` | historial de mensajes (add_messages reducer) |
+| `messages` | `list[dict]` | historial (add_messages reducer) |
 | `task` | `str` | tarea original del usuario |
-| `safe_mode` | `str` | `"auto"` / `"none"` / `"full"` |
-| `license_tier` | `str` | tier activo: free / starter / pro / enterprise |
-| `route` | `Optional[str]` | próximo agente a invocar |
+| `safe_mode` | `str` | `"ask"` / `"off"` / `"auto"` |
+| `license_tier` | `str` | free / starter / pro / enterprise |
+| `route` | `Optional[str]` | próximo nodo a invocar |
 | `agent_output` | `str` | output del último agente |
 | `output` | `str` | respuesta final al usuario |
 | `new_skill` | `Optional[str]` | skill a registrar en skills.md |
 | `iteration` | `int` | contador anti-loop (máx 8) |
+| `pending_command` | `Optional[str]` | **HITL:** acción esperando aprobación |
+| `pending_agent` | `Optional[str]` | **HITL:** agente que reanuda tras aprobación |
 
 ---
 
@@ -125,7 +155,7 @@ Límite: max 8 iteraciones por tarea (loop guard)
 | LLM principal | DeepSeek V4 Pro via LiteLLM | razonamiento, código, supervisión |
 | LLM visión | Gemini 2.0 Flash via LiteLLM | análisis de screenshots, OCR visual |
 | LLM fallback | GPT-4o-mini via LiteLLM | resiliencia cuando DeepSeek falla |
-| Routing | `LLMRouter` (custom) | selector de modelo por tarea + tracking de costo |
+| Router | `LLMRouter` (custom) | selector de modelo + tracking de costo/tarea |
 
 ### Herramientas de computer-use
 
@@ -133,36 +163,39 @@ Límite: max 8 iteraciones por tarea (loop guard)
 |-------------|----------|-------------|
 | Browser | Playwright (sync) | navegación, clicks, forms, extracción de texto |
 | Desktop | pyautogui | mouse, teclado, hotkeys, screenshots |
-| Shell | subprocess | bash/python, sudo, streaming output |
+| Shell | subprocess | bash/python, sudo, streaming, timeout |
 
 ### Licencias y monetización
 
-| Componente | Tecnología | Rol |
-|------------|------------|-----|
-| License server | FastAPI + SQLite | validación, usage tracking, admin API |
-| License client | httpx + diskcache | validación online/offline, fingerprint hardware |
-| Hardware ID | SHA-256(MAC+CPU+hostname) | previene compartir keys |
-| CLI | Click (via pyproject.toml) | `pillai` entry point |
-| **Pendiente** | Stripe + Fly.io | billing y deploy producción |
+| Componente | Tecnología | Estado |
+|------------|------------|--------|
+| License server | FastAPI + SQLite | ✅ listo |
+| License client | httpx + JSON cache | ✅ listo |
+| Hardware ID | `machine.id` UUID persistente | ✅ listo |
+| Stripe webhook | `stripe.Webhook.construct_event()` | ✅ listo |
+| Deploy | Fly.io `max_machines=1` | ⬜ pendiente `fly deploy` |
+| DNS | `licenses.pill.ai` → CNAME fly.dev | ⬜ pendiente |
+| Página precios | `pill.ai/pricing` + Stripe Checkout | ⬜ pendiente |
 
-### Infraestructura y dependencias
+### Infraestructura
 
 ```
 Python 3.12+
-├── langgraph          ← orquestación de agentes
+├── langgraph          ← StateGraph, conditional edges, HITL
 ├── litellm            ← abstracción multi-LLM
 ├── fastapi + uvicorn  ← license server
+├── stripe             ← webhook verification
 ├── playwright         ← browser automation
 ├── pyautogui          ← desktop automation
-├── httpx              ← HTTP client async
+├── httpx              ← HTTP client
 ├── pydantic           ← validación de datos
-└── click              ← CLI
+└── click              ← CLI entry point
 ```
 
 ### Costos de inferencia (mayo 2026)
 
-| Modelo | Input | Output | Uso en pill.ai |
-|--------|-------|--------|----------------|
+| Modelo | Input | Output | Uso |
+|--------|-------|--------|-----|
 | DeepSeek V4 Pro | $0.14/M | $0.28/M | 90% de llamadas |
 | Gemini 2.0 Flash | $0.10/M | $0.40/M | visión / desktop |
 | GPT-4o-mini | $0.15/M | $0.60/M | fallback <10% |
@@ -173,111 +206,107 @@ Python 3.12+
 ## Árbol de documentos
 
 ```
-Documentación pública
-├── README.md              ← instalación, uso, costos, arquitectura
-├── roadmap.md             ← fases 1–3, tabla de tareas, decisiones técnicas
-├── PLAN.md                ← este documento (estado + arquitectura interna)
-└── skills.md              ← habilidades auto-generadas por el agente
+Pública
+├── README.md              ← instalación one-click, free-first, tabla OI vs pill.ai
+├── roadmap.md             ← 3 fases, tabla de tareas, decisiones de arquitectura
+├── PLAN.md                ← este documento (estado interno, árbol de agentes)
+└── ~/.pill.ai/skills.md   ← auto-generado, gitignoreado, deduplicación semántica
+
+CI/CD
+└── .github/workflows/ci.yml  ← ruff + pytest + docker build
 
 Configuración
-├── .env.example           ← PILL_LICENSE_KEY, DEEPSEEK_API_KEY, GEMINI_API_KEY, ...
-├── pyproject.toml         ← metadatos del paquete, dependencias, entry points
-└── .gitignore             ← excluye .env, license.db, __pycache__, .pill.ai/
+├── .env.example           ← DEEPSEEK_API_KEY, GEMINI_API_KEY, PILLAI_ADMIN_SECRET, ...
+├── pyproject.toml         ← metadatos, dependencias, entry points
+└── .gitignore             ← excluye .env, license.db, .pill.ai/
+
+Deploy
+├── fly.toml               ← Fly.io: 1 máquina, volumen /data, 256MB RAM
+└── licensing/Dockerfile   ← imagen FastAPI del license server
 
 Licencia
-└── LICENSE                ← BSL-1.1 con Change Date 2028-01-01 → Apache 2.0
-
-Instaladores
-├── installers/install.sh  ← Linux/macOS: git clone + venv + pip + playwright
-└── installers/install.bat ← Windows: mismo flujo con cmd
+└── LICENSE                ← BSL-1.1 → Apache 2.0 (2028-01-01)
 ```
 
 ---
 
-## Fixes aplicados (2026-05-18)
+## Relación con Open Interpreter
 
-| # | Problema | Fix |
-|---|----------|-----|
-| 1 | SQLite se corrompe si Fly.io escala a >1 máquina | `fly.toml`: `max_machines = 1`, `min_machines_running = 1` |
-| 2 | Stripe webhook sin verificación de firma | `POST /webhooks/stripe` valida `Stripe-Signature` con `stripe.Webhook.construct_event()` antes de cualquier escritura |
-| 3 | `SkillsCompactor` con TTL/conteo no aplica a skills | Rediseñado: verifica similitud semántica por entrada nueva (sin TTL, sin umbral), merge in-place si duplicado |
-| 4 | `skills.md` en root era rastreado por git | Movido a `.pill.ai/skills.md` — ya cubierto por `.gitignore` |
-| 5 | Hardware fingerprint débil en Docker/VMs | `machine_id` persistente en `~/.pill.ai/machine.id` como identidad primaria; MAC+CPU+hostname solo como fallback si el FS es read-only |
+pill.ai **no es un fork de código** de Open Interpreter — es una reimplementación con la misma API pública. Esto permite que usuarios de OI migren sin cambiar una línea de código de su lado.
 
----
-
-## Plan de ejecución — próximos pasos
-
-### Inmediato (esta semana)
-
-#### 1. Deploy del license server en Fly.io
-
-```
-licensing/server.py → Fly.io shared-cpu-1x (gratis hasta 3M req/mes)
-```
-
-Archivos creados:
-- `licensing/Dockerfile` ✅
-- `licensing/requirements.txt` ✅
-- `fly.toml` ✅
-- `fly secrets set ADMIN_SECRET=...` ← pendiente ejecutar
-- DNS: `licenses.pill.ai` → CNAME a `pill-ai-licensing.fly.dev` ← pendiente
-
-#### 2. Integración relay-master (pendiente acceso al repo)
-
-Módulos identificados para integrar:
-
-| Módulo agentic-repo | Dónde integra en pill.ai | Estado |
-|--------------------|--------------------------|--------|
-| `context-compactor.js` → portado a `interpreter/skills_compactor.py` | `interpreter/core/core.py` → `_update_skills()` | ✅ integrado |
-| `batch_processor` | `licensing/client.py` → `report_usage()` | ❌ no existe en agentic-repo — diseñar desde cero si se necesita |
-| `cache_layer` (reemplazar disco) | `licensing/client.py` | ❌ no aplica — el caché de 7 días en disco es más robusto para validación offline |
-
-**Lo que se portó:** `SkillsCompactor` (in-memory, TTL 90s, umbral 12 entradas) colapsa entradas semánticamente similares en `skills.md` antes de hacer append. Si hay <12 entradas, append directo sin llamada LLM.
-
-#### 3. Stripe billing
-
-```
-pill.ai/pricing → Stripe Checkout
-Tiers: Free ($0) | Starter ($9/mes) | Pro ($29/mes) | Enterprise ($199/mes)
-Webhook stripe → PATCH /admin/keys/{key} actualiza tier automáticamente
-```
-
-#### 4. Tests y CI
-
-```
-tests/
-├── test_licensing.py   ← validación offline, expiración, hardware ID
-├── test_llm_router.py  ← routing por tipo de tarea, budget exceeded
-└── test_graph.py       ← supervisor routing, loop guard (max 8)
-
-.github/workflows/ci.yml ← pytest + ruff en push a main y PRs
-```
-
-### Mediano plazo (1–3 meses)
-
-- Docker sandbox por tarea (aislamiento real del shell_agent)
-- Dashboard web (Streamlit) con historial, costos, usage analytics
-- `POST /v1/task` API pública documentada
-- Semantic memory compaction en producción
-- Auto-update en instaladores
-
-### Largo plazo (ver roadmap.md)
-
-Fase 3 cubre: Ollama local ($0/tarea), mobile app, marketplace de agentes, fine-tuning propio, enterprise on-premise, cambio a Apache 2.0 en enero 2028.
+| | Open Interpreter | pill.ai |
+|--|-----------------|---------|
+| `interpreter.chat()` | ✅ | ✅ |
+| `interpreter.reset()` | ✅ | ✅ |
+| `interpreter.computer.*` | ✅ | ✅ |
+| `auto_run`, `safe_mode` | ✅ | ✅ |
+| Agent loop | ReAct single loop | LangGraph multi-agent StateGraph |
+| LLM layer | Custom classes | LiteLLM (multi-provider) |
+| Default model | GPT-4o | DeepSeek V4 Pro (95% más barato) |
+| Human-in-the-loop | Inline input() | Nodo explícito en el grafo |
+| Skills memory | No | `~/.pill.ai/skills.md` + dedup semántico |
+| Modo local gratis | Sí | Sí, ilimitado, sin cuenta |
+| Licencia | MIT | BSL-1.1 → Apache 2.0 (2028) |
 
 ---
 
-## Decisiones técnicas pendientes
+## Integración agentic-repo
 
-| Decisión | Opciones | Estado |
-|----------|----------|--------|
-| Deploy license server | Fly.io vs Railway | → **Fly.io** (mejor SQLite persistente) |
-| Billing | Stripe vs Paddle | → **Stripe** (más APIs, mejor DX) |
-| Sandbox shell | Docker vs gVisor vs nsjail | → **Docker** primero, gVisor en Fase 2 |
-| Memory compaction | relay-master vs LangMem vs custom | → **relay-master** si acceso disponible |
-| Frontend pricing page | Next.js vs Astro vs HTML estático | → **Astro** (sin build complexity) |
+| Módulo | Estado | Notas |
+|--------|--------|-------|
+| `context-compactor.js` → `interpreter/skills_compactor.py` | ✅ portado | Dedup semántico por entrada nueva (sin TTL, sin umbral de conteo) |
+| `batch_processor` | ❌ no existe en agentic-repo | Diseñar desde cero en Fase 2 si se necesita |
+| `cache_layer` | ❌ no aplica | El caché de 7 días en disco de `licensing/client.py` es más robusto para validación offline |
 
 ---
 
-*Generado: 2026-05-18 — branch `claude/add-licensing-system-KsFAw`*
+## Fixes de seguridad y fiabilidad aplicados
+
+| # | Problema | Fix | Commit |
+|---|----------|-----|--------|
+| 1 | SQLite corrupción si Fly.io escala a >1 máquina | `fly.toml`: `max_machines=1`, `min_machines_running=1` | `3d26c7b` |
+| 2 | Stripe webhook sin verificación de firma | `POST /webhooks/stripe` valida `Stripe-Signature` antes de cualquier escritura | `3d26c7b` |
+| 3 | SkillsCompactor por TTL/conteo no aplica a skills | Rediseñado: similitud semántica por entrada, merge in-place si duplicado | `3d26c7b` |
+| 4 | `skills.md` en root rastreado por git | Movido a `~/.pill.ai/skills.md` (gitignoreado) | `3d26c7b` |
+| 5 | Fingerprint débil en Docker/VMs | `machine_id` UUID persistente en `~/.pill.ai/machine.id` | `3d26c7b` |
+| 6 | `require_license()` bloqueaba uso local | Nunca bloquea; `require_relay()` es el único hard gate | `1933338` |
+| 7 | shell_agent ejecutaba comandos peligrosos sin confirmación | Nodo `human_approval` en el grafo para `rm -rf`, `sudo`, >10 clicks | `1933338` |
+
+---
+
+## Próximos pasos
+
+### Inmediato
+
+| Tarea | Comando |
+|-------|---------|
+| Deploy license server | `fly volumes create licensing_data --size 1 && fly secrets set ADMIN_SECRET=xxx && fly deploy` |
+| DNS | `licenses.pill.ai` → CNAME `pill-ai-licensing.fly.dev` |
+| Tests | Crear `tests/test_licensing.py`, `test_graph.py`, `test_llm_router.py` |
+| Pricing page | Astro + Stripe Checkout en `pill.ai/pricing` |
+
+### Mediano plazo (ver roadmap.md Fase 2)
+
+Dashboard Streamlit · relay cloud · auto-update · skills marketplace · Docker sandbox avanzado
+
+### Largo plazo (ver roadmap.md Fase 3)
+
+Ollama local · mobile app · enterprise on-premise · Apache 2.0 (2028)
+
+---
+
+## Decisiones técnicas
+
+| Decisión | Elegida | Razón |
+|----------|---------|-------|
+| Deploy license server | Fly.io | SQLite persistente con volumen, gratis hasta 3M req/mes |
+| Base de datos | SQLite | Suficiente para 1 writer; migrar a Turso si crece |
+| Billing | Stripe | Mejor DX, webhook robusto, Checkout hosted |
+| Sandbox shell | Docker (Fase 1), gVisor (Fase 2) | Docker es simple; gVisor añade syscall filtering |
+| Memory compaction | `skills_compactor.py` custom | relay-master solo tiene context-compactor para conversación, no skills |
+| Frontend precios | Astro | Sin build complexity, HTML estático, deploys en Netlify/CF Pages |
+| API-compat target | Open Interpreter | Mayor base de usuarios, migración sin fricción |
+
+---
+
+*Actualizado: 2026-05-18 — commit `1933338` — branch `claude/add-licensing-system-KsFAw`*
