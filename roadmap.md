@@ -11,7 +11,7 @@
 
 | # | Tarea | Estado |
 |---|-------|--------|
-| 1.1 | Fork de Open Interpreter: API-compatible (`chat`, `reset`, `computer.*`) | ✅ |
+| 1.1 | Fork real de Open Interpreter: todos los 40+ params de `__init__`, `computer.*` (8 módulos), diff explícito en `OI_DIFF.md` | ✅ |
 | 1.2 | LangGraph multi-agente: Supervisor → Vision / Browser / Desktop / Shell / Coder | ✅ |
 | 1.3 | LiteLLM routing: DeepSeek V4 Pro (90%) + Gemini Flash (visión) + GPT-4o-mini (fallback) | ✅ |
 | 1.4 | Modo LOCAL FREE: 100% funcional sin license key, sin cuenta, sin rate limit | ✅ |
@@ -21,12 +21,14 @@
 | 1.8 | One-click installers: `install.sh` (Linux/macOS) + `install.bat` (Windows) | ✅ |
 | 1.9 | CLI: `pillai activate / deactivate / status / server / run` | ✅ |
 | 1.10 | License server (FastAPI + SQLite) con Stripe webhook verificado | ✅ |
-| 1.11 | Deploy license server en Fly.io (1 máquina fija, SQLite persistente) | ⬜ |
-| 1.12 | **Tests unitarios** (`tests/`) — licensing, llm_router, graph HITL | ⬜ |
+| 1.11 | `computer.*` namespace expandido: display, clipboard, files, vision (+ alias os, screen) | ✅ |
+| 1.12 | Tests OI compat: `tests/test_oi_compatibility.py` — 30+ assertions, offline-safe | ✅ |
 | 1.13 | **GitHub Actions CI** — ruff + pytest en push a main y PRs | ✅ |
 | 1.14 | README completo con tabla de costos, demo placeholder, instalación one-click | ✅ |
-| 1.15 | Página de precios `pill.ai/pricing` con Stripe Checkout | ⬜ |
-| 1.16 | **Docker sandbox básico** para shell_agent (aislamiento del host) | ⬜ |
+| 1.15 | Deploy license server en Fly.io (1 máquina fija, SQLite persistente) | ⬜ |
+| 1.16 | Tests adicionales: `test_licensing.py`, `test_graph.py`, `test_llm_router.py` | ⬜ |
+| 1.17 | Página de precios `pill.ai/pricing` con Stripe Checkout | ⬜ |
+| 1.18 | **Docker sandbox básico** para shell_agent (aislamiento del host) | ⬜ |
 
 **Costo típico por tarea en Fase 1:**
 ```

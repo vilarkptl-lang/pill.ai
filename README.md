@@ -1,6 +1,8 @@
 # pill.ai — Ultra-Cheap Computer AI
 
 [![License: BSL-1.1](https://img.shields.io/badge/License-BSL--1.1-orange.svg)](LICENSE)
+[![Local Free Forever](https://img.shields.io/badge/local%20use-free%20forever-brightgreen.svg)](#pricing-optional-relay-cloud)
+[![OI Compatible](https://img.shields.io/badge/API-Open%20Interpreter%20compatible-blue.svg)](OI_DIFF.md)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://python.org)
 [![CI](https://github.com/vilarkptl-lang/pill.ai/actions/workflows/ci.yml/badge.svg)](https://github.com/vilarkptl-lang/pill.ai/actions)
 [![LangGraph](https://img.shields.io/badge/LangGraph-multi--agent-green.svg)](https://github.com/langchain-ai/langgraph)
@@ -70,15 +72,18 @@ ai.computer.terminal.run("ls -la ~/Documents")
 
 ## What it can do
 
-| Capability | Tool |
-|-----------|------|
-| Click anything on screen | pyautogui |
-| Type and use hotkeys | pyautogui |
-| Browse the web, fill forms, scrape | Playwright |
-| Run terminal commands + sudo | subprocess |
-| Analyze screenshots, OCR | Gemini 2.0 Flash |
-| Write and execute Python code | Python exec |
-| Remember skills across sessions | `~/.pill.ai/skills.md` |
+| Capability | `computer.*` module | Tool |
+|-----------|-------------------|------|
+| Click anything on screen | `computer.mouse` | pyautogui |
+| Type and use hotkeys | `computer.keyboard` | pyautogui |
+| Browse the web, fill forms, scrape | `computer.browser` | Playwright |
+| Run terminal commands + sudo | `computer.terminal` | subprocess |
+| Read screen size + capture display | `computer.display` | pyautogui |
+| Copy/paste clipboard | `computer.clipboard` | pyperclip |
+| Read/write/find files | `computer.files` | pathlib |
+| Analyze screenshots, OCR | `computer.vision` | Gemini 2.0 Flash |
+| Write and execute Python code | coder agent | Python exec |
+| Remember skills across sessions | — | `~/.pill.ai/skills.md` |
 
 **Human-in-the-loop safety:** pill.ai asks for confirmation before `sudo`, `rm -rf`, or any destructive action. You can set `safe_mode="off"` to disable.
 
@@ -186,10 +191,14 @@ pill.ai implements the same public API as [Open Interpreter](https://github.com/
 |--|-----------------|---------|
 | Agent loop | Single ReAct loop | LangGraph multi-agent StateGraph |
 | LLM layer | Custom classes | LiteLLM (multi-provider routing) |
-| Default model | GPT-4o | DeepSeek V4 Pro (95% cheaper) |
+| Default model | GPT-4o ($15/M) | DeepSeek V4 Pro ($0.28/M) — **53x cheaper** |
+| Vision model | GPT-4V | Gemini 2.0 Flash — 5x cheaper |
 | Human-in-the-loop | Inline confirmation | Explicit HITL graph node |
+| `computer.*` modules | 15 | 8 implemented, 6 in Phase 2 |
 | Skills memory | None | `~/.pill.ai/skills.md` with semantic dedup |
+| Singleton import | Eager (network call) | Lazy proxy (no cost on `import`) |
 | License | MIT | BSL-1.1 → Apache 2.0 (2028) |
+| Full diff | — | [OI_DIFF.md](OI_DIFF.md) |
 
 ---
 

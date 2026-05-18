@@ -142,6 +142,12 @@ class ShellTool:
         answer = input(f"[pill.ai] Allow: {action}? [y/N] ").strip().lower()
         return answer in ("y", "yes")
 
+    def terminate(self) -> None:
+        """Kill any running subprocess — mirrors OI's Terminal.terminate()."""
+        if self._process and self._process.poll() is None:
+            self._process.kill()
+        self._process = None
+
     def _inject_sudo(self, command: str) -> str:
         """Prepend sudo password via stdin if needed."""
         if "sudo " not in command:

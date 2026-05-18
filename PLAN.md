@@ -16,6 +16,7 @@ pill.ai/
 ├── .gitignore                     ← excluye .env, license.db, .pill.ai/
 ├── LICENSE                        ← BSL-1.1 → Apache 2.0 el 2028-01-01
 ├── README.md                      ← instalación one-click, costos, tabla OI vs pill.ai
+├── OI_DIFF.md                     ← diff explícito OI original vs pill.ai (6 archivos)
 ├── PLAN.md                        ← este documento
 ├── fly.toml                       ← deploy Fly.io (max_machines=1, volumen /data)
 ├── pyproject.toml                 ← paquete `pill-ai`, entry point `pillai`

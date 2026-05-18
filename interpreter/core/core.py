@@ -59,7 +59,13 @@ class Interpreter:
         safe_mode: str = "off",               # OI default is "off"
         shrink_images: bool = True,
         loop: bool = False,
-        loop_message: str = "Proceed. You CAN run code on my machine.",
+        loop_message: str = (
+            "Proceed. You CAN run code on my machine. If the entire task I asked for is done, "
+            "say exactly 'The task is done.' If you need some specific information (like username "
+            "or password) say EXACTLY 'Please provide more information.' If it's impossible, say "
+            "'The task is impossible.' (If I haven't provided a task, say exactly 'Let me know "
+            "what you'd like to do next.') Otherwise keep going."
+        ),
         loop_breakers: Optional[List[str]] = None,
         disable_telemetry: bool = True,        # pill.ai default: privacy-first
         in_terminal_interface: bool = False,
@@ -74,6 +80,7 @@ class Interpreter:
         user_message_template: str = "{content}",
         always_apply_user_message_template: bool = False,
         code_output_template: str = "Code output: {content}\n\nWhat does this output mean / what's next?",
+        empty_code_output_template: str = "The code above was executed on my machine. It produced no text output. what's next (if anything, or are we done?)",
         code_output_sender: str = "user",
         computer: Optional[Any] = None,
         sync_computer: bool = False,
@@ -106,9 +113,10 @@ class Interpreter:
         self.loop = loop
         self.loop_message = loop_message
         self.loop_breakers: List[str] = loop_breakers or [
-            "the task is done",
-            "the task is impossible",
-            "let me know what you'd like to do next",
+            "The task is done.",
+            "The task is impossible.",
+            "Let me know what you'd like to do next.",
+            "Please provide more information.",
         ]
         self.disable_telemetry = disable_telemetry
         self.in_terminal_interface = in_terminal_interface
@@ -123,6 +131,7 @@ class Interpreter:
         self.user_message_template = user_message_template
         self.always_apply_user_message_template = always_apply_user_message_template
         self.code_output_template = code_output_template
+        self.empty_code_output_template = empty_code_output_template
         self.code_output_sender = code_output_sender
         self.sync_computer = sync_computer
         self.import_computer_api = import_computer_api
@@ -135,6 +144,11 @@ class Interpreter:
         # system_message: OI appends custom_instructions
         base_sys = system_message or _DEFAULT_SYSTEM
         self.system_message = base_sys + (f"\n\n{custom_instructions}" if custom_instructions else "")
+
+        # ── OI state tracking (kept for API parity) ───────────────────────
+        self.responding = False
+        self.last_messages_count = 0
+        self.highlight_active_line = True
 
         # ── pill.ai-only attributes ───────────────────────────────────────
         self.max_budget_per_task = max_budget_per_task
@@ -207,7 +221,60 @@ class Interpreter:
 
     def reset(self):
         """Clear conversation history — same as OI's interpreter.reset()."""
+        if hasattr(self.computer, "terminal"):
+            try:
+                self.computer.terminal.terminate()
+            except Exception:
+                pass
         self.messages = []
+        self.last_messages_count = 0
+
+    # ── OI API methods (parity) ───────────────────────────────────────────
+
+    def wait(self):
+        """Block until responding=False, return new messages since last call."""
+        import time
+        while self.responding:
+            time.sleep(0.2)
+        return self.messages[self.last_messages_count:]
+
+    def local_setup(self):
+        """Interactive wizard to pick a local model (mirrors OI's local_setup)."""
+        print("\n[pill.ai] Local model setup")
+        print("  Set DEEPSEEK_API_KEY for DeepSeek V4 Pro (recommended, $0.14/M)")
+        print("  Set GEMINI_API_KEY for Gemini 2.0 Flash (vision, free tier)")
+        print("  Set OPENAI_API_KEY for GPT-4o-mini (fallback)")
+        model = input("\n  Model to use [default: deepseek/deepseek-chat]: ").strip()
+        if model:
+            self.model = model
+            self._router.default_model = model
+        print(f"  Model set to: {self.model}\n")
+
+    def display_message(self, markdown: str):
+        """Display a markdown message (mirrors OI's display_message)."""
+        if self.plain_text_display:
+            print(markdown)
+        else:
+            try:
+                from rich.console import Console
+                from rich.markdown import Markdown
+                Console().print(Markdown(markdown))
+            except ImportError:
+                print(markdown)
+
+    def get_oi_dir(self) -> str:
+        """Return pill.ai's config dir (mirrors OI's get_oi_dir)."""
+        return str(Path.home() / ".pill.ai")
+
+    @property
+    def anonymous_telemetry(self) -> bool:
+        """OI had telemetry; pill.ai is always False."""
+        return False
+
+    @property
+    def will_contribute(self) -> bool:
+        """OI had conversation contribution; pill.ai is always False."""
+        return False
 
     # ── Internal dispatch ─────────────────────────────────────────────────
 
