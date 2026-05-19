@@ -1,7 +1,5 @@
 """
 Fork of OpenInterpreter computer/display.py
-Provides screen geometry, multi-monitor info, and screenshot capture.
-OI used python-xlib / AppKit; pill.ai uses pyautogui (cross-platform).
 """
 from __future__ import annotations
 
@@ -16,19 +14,14 @@ except ImportError:
     HAS_GUI = False
 
 try:
-    from PIL import Image
+    import PIL  # noqa: F401
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
 
 
 class DisplayTool:
-    """Screen geometry and capture — mirrors OI's computer.display interface."""
-
-    # ── Screen info ──────────────────────────────────────────────────────
-
     def size(self) -> Tuple[int, int]:
-        """Return (width, height) of the primary screen."""
         self._require_gui()
         return pyautogui.size()
 
@@ -42,14 +35,11 @@ class DisplayTool:
         w, h = self.size()
         return w // 2, h // 2
 
-    # ── Screenshot ────────────────────────────────────────────────────────
-
     def screenshot(
         self,
         region: Optional[Tuple[int, int, int, int]] = None,
         show: bool = False,
     ) -> bytes:
-        """Return PNG bytes. region=(left, top, width, height)."""
         self._require_gui()
         img = pyautogui.screenshot(region=region)
         if show:
@@ -62,16 +52,11 @@ class DisplayTool:
         return base64.b64encode(self.screenshot(region=region)).decode()
 
     def save_screenshot(self, path: str, region=None) -> str:
-        """Save screenshot to path; return the path."""
         data = self.screenshot(region=region)
         with open(path, "wb") as f:
             f.write(data)
         return path
 
-    # ── Helpers ───────────────────────────────────────────────────────────
-
     def _require_gui(self):
         if not HAS_GUI:
-            raise RuntimeError(
-                "pyautogui not installed. Run: pip install pyautogui"
-            )
+            raise RuntimeError("pyautogui not installed. Run: pip install pyautogui")

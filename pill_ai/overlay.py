@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import threading
 import tkinter as tk
-from tkinter import font as tkfont
 
 
 _BG       = "#0f0f0f"
@@ -35,10 +34,7 @@ class OverlayWindow:
         if self._root and self._root.winfo_exists():
             self._root.after(0, self._focus)
             return
-        # Must run tkinter on main thread — if called from hotkey thread, schedule
         threading.Thread(target=self._launch, daemon=True).start()
-
-    # ── Build UI ──────────────────────────────────────────────────────────
 
     def _launch(self):
         root = tk.Tk()
@@ -46,11 +42,10 @@ class OverlayWindow:
 
         root.title("")
         root.configure(bg=_BG)
-        root.overrideredirect(True)          # no title bar
-        root.attributes("-topmost", True)    # always on top
+        root.overrideredirect(True)
+        root.attributes("-topmost", True)
         root.attributes("-alpha", 0.97)
 
-        # Center on screen
         root.update_idletasks()
         sw = root.winfo_screenwidth()
         sh = root.winfo_screenheight()
@@ -58,7 +53,6 @@ class OverlayWindow:
         y = int(sh * 0.28)
         root.geometry(f"{_WIDTH}x80+{x}+{y}")
 
-        # ── Input row ─────────────────────────────────────────────────────
         frame = tk.Frame(root, bg=_BG, padx=16, pady=12)
         frame.pack(fill="x")
 
@@ -77,7 +71,6 @@ class OverlayWindow:
                           font=("Segoe UI", 9))
         status.pack(side="right", padx=(8, 0))
 
-        # ── Response area ─────────────────────────────────────────────────
         resp_frame = tk.Frame(root, bg=_BG)
 
         resp_text = tk.Text(resp_frame, bg=_BG2, fg=_TEXT, relief="flat",
@@ -86,7 +79,6 @@ class OverlayWindow:
                             state="disabled", cursor="arrow")
         resp_text.pack(fill="both", expand=True, padx=16, pady=(0, 12))
 
-        # ── Key bindings ──────────────────────────────────────────────────
         def _submit(event=None):
             query = entry_var.get().strip()
             if not query:
@@ -104,7 +96,6 @@ class OverlayWindow:
         entry.bind("<Escape>", _close)
         root.bind("<Escape>", _close)
 
-        # Drag to move
         def _start_drag(e): root._drag_x, root._drag_y = e.x, e.y
         def _drag(e):
             dx, dy = e.x - root._drag_x, e.y - root._drag_y
@@ -116,7 +107,6 @@ class OverlayWindow:
         label.bind("<Button-1>", _start_drag)
         label.bind("<B1-Motion>", _drag)
 
-        # ── Relay call ────────────────────────────────────────────────────
         def _show_response(text: str):
             if not text:
                 resp_frame.pack_forget()
@@ -126,7 +116,6 @@ class OverlayWindow:
             resp_text.delete("1.0", "end")
             resp_text.insert("end", text)
             resp_text.config(state="disabled")
-
             lines = text.count("\n") + 1
             h = min(80 + 24 * lines + 24, _MAX_H)
             root.geometry(f"{_WIDTH}x{h}+{x}+{y}")
@@ -136,8 +125,9 @@ class OverlayWindow:
             try:
                 result = self._relay(query)
                 root.after(0, lambda: _on_done(result))
-            except Exception as e:
-                root.after(0, lambda: _on_done(f"Error: {e}"))
+            except Exception as exc:
+                msg = f"Error: {exc}"
+                root.after(0, lambda: _on_done(msg))
 
         def _on_done(result: str):
             entry.config(state="normal")
@@ -151,8 +141,6 @@ class OverlayWindow:
             self._root.lift()
             self._root.focus_force()
 
-
-# ── Relay helper ──────────────────────────────────────────────────────────────
 
 def _build_relay():
     """Return a callable(query) → str that calls the relay server."""

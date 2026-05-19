@@ -1,12 +1,10 @@
 """
 Fork of OpenInterpreter tools/desktop.py
-Extended with: drag-and-drop, right-click context menus, screenshot-to-Gemini vision loop.
 """
 from __future__ import annotations
 
 import base64
 import io
-import os
 import time
 from typing import Optional, Tuple
 
@@ -20,7 +18,7 @@ except ImportError:
     HAS_GUI = False
 
 try:
-    from PIL import Image, ImageGrab
+    import PIL  # noqa: F401
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
@@ -33,19 +31,11 @@ _SAFE_MODE_OFF_WARNING = (
 
 
 class DesktopTool:
-    """
-    Full desktop control: mouse, keyboard, screenshots.
-    All destructive actions (file delete, format, etc.) go through
-    _confirm() when safe_mode != 'off'.
-    """
-
     def __init__(self, safe_mode: str = "ask", _suppress_warning: bool = False):
         self.safe_mode = safe_mode
         if safe_mode == "off" and not _suppress_warning:
             import sys
             print(_SAFE_MODE_OFF_WARNING, file=sys.stderr)
-
-    # ── Mouse ──────────────────────────────────────────────────────────────
 
     def click(self, x: int, y: int, button: str = "left", clicks: int = 1) -> None:
         self._require_gui()
@@ -62,7 +52,6 @@ class DesktopTool:
         pyautogui.moveTo(x, y, duration=duration)
 
     def drag(self, x1: int, y1: int, x2: int, y2: int, duration: float = 0.5) -> None:
-        """Click-drag from (x1,y1) to (x2,y2)."""
         self._require_gui()
         pyautogui.mouseDown(x1, y1)
         time.sleep(0.05)
@@ -74,14 +63,11 @@ class DesktopTool:
         amount = -clicks if direction == "down" else clicks
         pyautogui.scroll(amount, x=x, y=y)
 
-    # ── Keyboard ──────────────────────────────────────────────────────────
-
     def type(self, text: str, interval: float = 0.02) -> None:
         self._require_gui()
         pyautogui.typewrite(text, interval=interval)
 
     def hotkey(self, *keys: str) -> None:
-        """e.g. hotkey('ctrl', 'c')"""
         self._require_gui()
         pyautogui.hotkey(*keys)
 
@@ -92,10 +78,7 @@ class DesktopTool:
     def enter(self) -> None:
         self.press("enter")
 
-    # ── Screenshots ───────────────────────────────────────────────────────
-
     def screenshot(self, region: Optional[Tuple[int, int, int, int]] = None) -> bytes:
-        """Returns PNG bytes."""
         self._require_gui()
         img = pyautogui.screenshot(region=region)
         buf = io.BytesIO()
@@ -106,7 +89,6 @@ class DesktopTool:
         return base64.b64encode(self.screenshot(region=region)).decode()
 
     def screenshot_and_describe(self, router, region=None) -> str:
-        """Take screenshot, send to Gemini Flash for description."""
         b64 = self.screenshot_b64(region=region)
         messages = [
             {
@@ -118,8 +100,6 @@ class DesktopTool:
             }
         ]
         return router.complete(messages, has_images=True)
-
-    # ── Window management ────────────────────────────────────────────────
 
     def get_active_window(self) -> Optional[str]:
         if not HAS_GUI:
@@ -139,13 +119,9 @@ class DesktopTool:
             return True
         return False
 
-    # ── Helpers ───────────────────────────────────────────────────────────
-
     def _require_gui(self):
         if not HAS_GUI:
-            raise RuntimeError(
-                "pyautogui not installed. Run: pip install pyautogui pygetwindow"
-            )
+            raise RuntimeError("pyautogui not installed. Run: pip install pyautogui pygetwindow")
 
     def _confirm(self, action: str) -> bool:
         if self.safe_mode == "off":

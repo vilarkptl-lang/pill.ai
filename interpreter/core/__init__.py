@@ -1,1 +1,1 @@
-from .core import Interpreter
+from .core import Interpreter as Interpreter
