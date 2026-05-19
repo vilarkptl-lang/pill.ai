@@ -36,6 +36,8 @@ class OverlayWindow:
             return
         threading.Thread(target=self._launch, daemon=True).start()
 
+    # ── Build UI ──────────────────────────────────────────────────────────
+
     def _launch(self):
         root = tk.Tk()
         self._root = root
@@ -72,7 +74,6 @@ class OverlayWindow:
         status.pack(side="right", padx=(8, 0))
 
         resp_frame = tk.Frame(root, bg=_BG)
-
         resp_text = tk.Text(resp_frame, bg=_BG2, fg=_TEXT, relief="flat",
                             font=("Segoe UI", 11), wrap="word",
                             padx=12, pady=10, bd=0,
@@ -99,9 +100,7 @@ class OverlayWindow:
         def _start_drag(e): root._drag_x, root._drag_y = e.x, e.y
         def _drag(e):
             dx, dy = e.x - root._drag_x, e.y - root._drag_y
-            nx = root.winfo_x() + dx
-            ny = root.winfo_y() + dy
-            root.geometry(f"+{nx}+{ny}")
+            root.geometry(f"+{root.winfo_x() + dx}+{root.winfo_y() + dy}")
         frame.bind("<Button-1>", _start_drag)
         frame.bind("<B1-Motion>", _drag)
         label.bind("<Button-1>", _start_drag)
@@ -123,7 +122,10 @@ class OverlayWindow:
 
         def _call_relay(query: str):
             try:
-                result = self._relay(query)
+                from pill_ai.local_exec import detect_intent, execute
+                intent = detect_intent(query)
+                local_ctx = execute(query, intent) if intent else ""
+                result = self._relay(query, local_context=local_ctx)
                 root.after(0, lambda: _on_done(result))
             except Exception as exc:
                 msg = f"Error: {exc}"
@@ -142,25 +144,39 @@ class OverlayWindow:
             self._root.focus_force()
 
 
+# ── Relay helper ──────────────────────────────────────────────────────────────
+
 def _build_relay():
-    """Return a callable(query) → str that calls the relay server."""
+    """Return a callable(query, local_context) → str that calls the relay server."""
     try:
         from interpreter.relay_router import RelayRouter, RELAY_URL
         from interpreter._hw_id import get_hw_id
     except ImportError:
-        def _no_relay(query):
+        def _no_relay(query, local_context=""):
             return "[pill.ai] relay no configurado — falta PILLAI_RELAY_URL"
         return _no_relay
 
     if not RELAY_URL:
-        def _no_url(query):
+        def _no_url(query, local_context=""):
             return "[pill.ai] PILLAI_RELAY_URL no está configurado"
         return _no_url
 
     router = RelayRouter(relay_url=RELAY_URL, license_key="FREE", hw_id=get_hw_id())
 
-    def _call(query: str) -> str:
-        messages = [{"role": "user", "content": query}]
+    def _call(query: str, local_context: str = "") -> str:
+        messages = []
+        if local_context:
+            messages.append({
+                "role": "system",
+                "content": (
+                    "Eres un asistente de computadora. El sistema ejecutó comandos locales "
+                    "y obtuvo el siguiente contexto de la PC del usuario:\n\n"
+                    f"{local_context}\n\n"
+                    "Usa esta información para responder la pregunta del usuario de forma "
+                    "concisa y útil. Si encontraste archivos, lista los más relevantes."
+                ),
+            })
+        messages.append({"role": "user", "content": query})
         return router.complete(messages, task_hint=query)
 
     return _call
