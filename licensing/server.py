@@ -1,12 +1,10 @@
 """
 pill.ai License Server — deploy this on YOUR infrastructure.
 
-This is the control plane. You (the owner) use it to:
-  - Issue license keys
-  - Suspend / revoke keys
-  - Disable the free tier globally
-  - Set per-key call limits and feature flags
-  - View usage analytics
+Database:
+  Set PILLAI_DB_URL to a SQLAlchemy connection URL.
+  MySQL (production):  mysql+pymysql://user:pass@localhost/pillai
+  SQLite  (local dev): sqlite:///license.db  ← default
 
 Run with:
     uvicorn licensing.server:app --host 0.0.0.0 --port 8080
@@ -15,93 +13,123 @@ Protect the /admin endpoints with PILLAI_ADMIN_SECRET env var.
 """
 from __future__ import annotations
 
-import hashlib
 import hmac
+import json
 import os
 import secrets
 import time
-import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
 try:
     from fastapi import Depends, FastAPI, HTTPException, Request, Header
-    from fastapi.responses import JSONResponse
     from pydantic import BaseModel
-    import sqlite3
+    from sqlalchemy import (
+        Column, Integer, String, Text, create_engine, text
+    )
+    from sqlalchemy.orm import declarative_base, Session, sessionmaker
     HAS_SERVER_DEPS = True
 except ImportError:
     HAS_SERVER_DEPS = False
-    # Graceful degradation — server deps only needed when hosting the server
     FastAPI = object  # type: ignore
     BaseModel = object  # type: ignore
 
 ADMIN_SECRET = os.getenv("PILLAI_ADMIN_SECRET", "change-me-in-production")
-DB_PATH = os.getenv("PILLAI_DB", "license.db")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 
-# ── Database ────────────────────────────────────────────────────────────────
+# DB_URL: MySQL in prod, SQLite for local dev
+_DB_PATH = os.getenv("PILLAI_DB", "license.db")
+DB_URL = os.getenv("PILLAI_DB_URL", f"sqlite:///{_DB_PATH}")
 
-def _db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+# ── SQLAlchemy setup ─────────────────────────────────────────────────────────
 
-
-def _init_db():
-    with _db() as conn:
-        conn.executescript("""
-        CREATE TABLE IF NOT EXISTS licenses (
-            key TEXT PRIMARY KEY,
-            status TEXT NOT NULL DEFAULT 'active',
-            tier TEXT NOT NULL DEFAULT 'free',
-            email TEXT,
-            owner_id TEXT,
-            daily_call_limit INTEGER DEFAULT 100,
-            features TEXT DEFAULT '[]',
-            message TEXT DEFAULT '',
-            expires_at TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS activations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            license_key TEXT NOT NULL,
-            hw_id TEXT NOT NULL,
-            install_id TEXT NOT NULL,
-            platform TEXT,
-            version TEXT,
-            first_seen TEXT NOT NULL,
-            last_seen TEXT NOT NULL,
-            UNIQUE(license_key, install_id)
-        );
-
-        CREATE TABLE IF NOT EXISTS usage_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            license_key TEXT NOT NULL,
-            hw_id TEXT NOT NULL,
-            calls INTEGER DEFAULT 1,
-            ts INTEGER NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS global_settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        );
-
-        INSERT OR IGNORE INTO global_settings VALUES ('free_tier_enabled', 'true');
-        INSERT OR IGNORE INTO global_settings VALUES ('free_daily_limit', '100');
-        """)
+Base = declarative_base()
 
 
-# ── FastAPI app ─────────────────────────────────────────────────────────────
+class License(Base):
+    __tablename__ = "licenses"
+    key              = Column(String(64), primary_key=True)
+    status           = Column(String(20), nullable=False, default="active")
+    tier             = Column(String(20), nullable=False, default="free")
+    email            = Column(String(255))
+    owner_id         = Column(String(64))
+    daily_call_limit = Column(Integer, default=100)
+    features         = Column(Text, default="[]")
+    message          = Column(Text, default="")
+    expires_at       = Column(String(40))
+    created_at       = Column(String(40), nullable=False)
+    updated_at       = Column(String(40), nullable=False)
+
+
+class Activation(Base):
+    __tablename__ = "activations"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    license_key = Column(String(64), nullable=False)
+    hw_id       = Column(String(128), nullable=False)
+    install_id  = Column(String(128), nullable=False)
+    platform    = Column(String(64))
+    version     = Column(String(32))
+    first_seen  = Column(String(40), nullable=False)
+    last_seen   = Column(String(40), nullable=False)
+
+
+class UsageLog(Base):
+    __tablename__ = "usage_log"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    license_key = Column(String(64), nullable=False)
+    hw_id       = Column(String(128), nullable=False)
+    calls       = Column(Integer, default=1)
+    ts          = Column(Integer, nullable=False)
+
+
+class GlobalSetting(Base):
+    __tablename__ = "global_settings"
+    key   = Column(String(64), primary_key=True)
+    value = Column(Text)
+
+
+def _make_engine():
+    is_mysql = DB_URL.startswith("mysql")
+    kwargs = {"pool_pre_ping": True} if is_mysql else {}
+    return create_engine(DB_URL, **kwargs)
+
+
+def _init_db(engine):
+    Base.metadata.create_all(engine)
+    # Seed default global settings
+    with Session(engine) as s:
+        for k, v in [("free_tier_enabled", "true"), ("free_daily_limit", "100")]:
+            if not s.get(GlobalSetting, k):
+                s.add(GlobalSetting(key=k, value=v))
+        s.commit()
+
+
+def _upsert_activation(s: Session, key: str, hw_id: str, install_id: str,
+                       platform: str, version: str, now: str):
+    row = s.query(Activation).filter_by(
+        license_key=key, install_id=install_id
+    ).first()
+    if row:
+        row.last_seen = now
+        row.version = version
+    else:
+        s.add(Activation(
+            license_key=key, hw_id=hw_id, install_id=install_id,
+            platform=platform, version=version, first_seen=now, last_seen=now,
+        ))
+
+
+# ── FastAPI app ──────────────────────────────────────────────────────────────
 
 if HAS_SERVER_DEPS:
-    app = FastAPI(title="pill.ai License Server", version="1.0.0")
-    _init_db()
+    _engine = _make_engine()
+    _init_db(_engine)
+    _SessionLocal = sessionmaker(bind=_engine)
 
-    # ── Auth helper ─────────────────────────────────────────────────────────
+    app = FastAPI(title="pill.ai License Server", version="1.0.0")
+
+    def _db() -> Session:
+        return _SessionLocal()
 
     def _require_admin(x_admin_secret: str = Header(...)):
         if not hmac.compare_digest(x_admin_secret, ADMIN_SECRET):
@@ -120,51 +148,36 @@ if HAS_SERVER_DEPS:
     @app.post("/v1/validate")
     def validate(req: ValidateRequest):
         now = datetime.now(timezone.utc).isoformat()
-        with _db() as conn:
-            # Check free tier global switch
-            free_enabled = conn.execute(
-                "SELECT value FROM global_settings WHERE key='free_tier_enabled'"
-            ).fetchone()["value"] == "true"
-
-            row = conn.execute(
-                "SELECT * FROM licenses WHERE key=?", (req.key.upper(),)
-            ).fetchone()
+        with _db() as s:
+            free_setting = s.get(GlobalSetting, "free_tier_enabled")
+            free_enabled = (free_setting.value == "true") if free_setting else True
 
             if req.key.upper() == "FREE":
                 if not free_enabled:
                     return {"status": "free_disabled", "tier": "free",
                             "message": "Free tier is currently disabled. Visit https://pill.ai/pricing"}
-                free_limit = int(conn.execute(
-                    "SELECT value FROM global_settings WHERE key='free_daily_limit'"
-                ).fetchone()["value"])
-                return {
-                    "status": "active",
-                    "tier": "free",
-                    "daily_call_limit": free_limit,
-                    "features": [],
-                    "message": "",
-                }
+                limit_setting = s.get(GlobalSetting, "free_daily_limit")
+                free_limit = int(limit_setting.value) if limit_setting else 100
+                return {"status": "active", "tier": "free",
+                        "daily_call_limit": free_limit, "features": [], "message": ""}
 
+            row = s.get(License, req.key.upper())
             if not row:
                 return {"status": "invalid", "tier": "free", "message": "Unknown license key."}
 
-            # Upsert activation record
-            conn.execute("""
-                INSERT INTO activations (license_key, hw_id, install_id, platform, version, first_seen, last_seen)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(license_key, install_id) DO UPDATE SET last_seen=excluded.last_seen, version=excluded.version
-            """, (req.key.upper(), req.hw_id, req.install_id, req.platform, req.version, now, now))
+            _upsert_activation(s, req.key.upper(), req.hw_id, req.install_id,
+                               req.platform, req.version, now)
+            s.commit()
 
-            import json
             return {
-                "status": row["status"],
-                "tier": row["tier"],
-                "email": row["email"] or "",
-                "owner_id": row["owner_id"] or "",
-                "daily_call_limit": row["daily_call_limit"],
-                "features": json.loads(row["features"] or "[]"),
-                "message": row["message"] or "",
-                "expires_at": row["expires_at"],
+                "status": row.status,
+                "tier": row.tier,
+                "email": row.email or "",
+                "owner_id": row.owner_id or "",
+                "daily_call_limit": row.daily_call_limit,
+                "features": json.loads(row.features or "[]"),
+                "message": row.message or "",
+                "expires_at": row.expires_at,
             }
 
     class UsageRequest(BaseModel):
@@ -175,11 +188,14 @@ if HAS_SERVER_DEPS:
 
     @app.post("/v1/usage")
     def report_usage(req: UsageRequest):
-        with _db() as conn:
-            conn.execute(
-                "INSERT INTO usage_log (license_key, hw_id, calls, ts) VALUES (?,?,?,?)",
-                (req.key.upper(), req.hw_id, req.calls, req.ts or int(time.time())),
-            )
+        with _db() as s:
+            s.add(UsageLog(
+                license_key=req.key.upper(),
+                hw_id=req.hw_id,
+                calls=req.calls,
+                ts=req.ts or int(time.time()),
+            ))
+            s.commit()
         return {"ok": True}
 
     # ── Admin endpoints ──────────────────────────────────────────────────────
@@ -195,19 +211,18 @@ if HAS_SERVER_DEPS:
 
     @app.post("/admin/keys", dependencies=[Depends(_require_admin)])
     def create_key(req: CreateKeyRequest):
-        import json
-        key = "PILLAI-" + "-".join(
-            secrets.token_hex(3).upper() for _ in range(4)
-        )
+        key = "PILLAI-" + "-".join(secrets.token_hex(3).upper() for _ in range(4))
         now = datetime.now(timezone.utc).isoformat()
-        with _db() as conn:
-            conn.execute("""
-                INSERT INTO licenses (key, status, tier, email, owner_id, daily_call_limit,
-                    features, message, expires_at, created_at, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)
-            """, (key, "active", req.tier, req.email, req.owner_id,
-                  req.daily_call_limit, json.dumps(req.features),
-                  req.message, req.expires_at, now, now))
+        with _db() as s:
+            s.add(License(
+                key=key, status="active", tier=req.tier,
+                email=req.email, owner_id=req.owner_id,
+                daily_call_limit=req.daily_call_limit,
+                features=json.dumps(req.features),
+                message=req.message, expires_at=req.expires_at,
+                created_at=now, updated_at=now,
+            ))
+            s.commit()
         return {"key": key}
 
     class UpdateKeyRequest(BaseModel):
@@ -219,29 +234,29 @@ if HAS_SERVER_DEPS:
 
     @app.patch("/admin/keys/{key}", dependencies=[Depends(_require_admin)])
     def update_key(key: str, req: UpdateKeyRequest):
-        import json
         now = datetime.now(timezone.utc).isoformat()
-        updates = {k: v for k, v in req.dict().items() if v is not None}
-        if "features" in updates:
-            updates["features"] = json.dumps(updates["features"])
-        updates["updated_at"] = now
-        set_clause = ", ".join(f"{k}=?" for k in updates)
-        with _db() as conn:
-            conn.execute(
-                f"UPDATE licenses SET {set_clause} WHERE key=?",
-                list(updates.values()) + [key.upper()],
-            )
+        with _db() as s:
+            row = s.get(License, key.upper())
+            if not row:
+                raise HTTPException(status_code=404, detail="Key not found")
+            if req.status is not None:           row.status = req.status
+            if req.tier is not None:             row.tier = req.tier
+            if req.daily_call_limit is not None: row.daily_call_limit = req.daily_call_limit
+            if req.message is not None:          row.message = req.message
+            if req.features is not None:         row.features = json.dumps(req.features)
+            row.updated_at = now
+            s.commit()
         return {"ok": True}
 
     @app.delete("/admin/keys/{key}", dependencies=[Depends(_require_admin)])
     def revoke_key(key: str):
-        """Permanently revoke a license key."""
         now = datetime.now(timezone.utc).isoformat()
-        with _db() as conn:
-            conn.execute(
-                "UPDATE licenses SET status='revoked', updated_at=? WHERE key=?",
-                (now, key.upper()),
-            )
+        with _db() as s:
+            row = s.get(License, key.upper())
+            if row:
+                row.status = "revoked"
+                row.updated_at = now
+                s.commit()
         return {"ok": True}
 
     class GlobalSettingRequest(BaseModel):
@@ -249,73 +264,68 @@ if HAS_SERVER_DEPS:
 
     @app.put("/admin/settings/{key}", dependencies=[Depends(_require_admin)])
     def set_global(key: str, req: GlobalSettingRequest):
-        """
-        Key settings:
-          free_tier_enabled = true|false   → disable free tier for everyone
-          free_daily_limit  = 100          → change free tier call limit
-        """
-        with _db() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO global_settings (key, value) VALUES (?,?)",
-                (key, req.value),
-            )
+        with _db() as s:
+            row = s.get(GlobalSetting, key)
+            if row:
+                row.value = req.value
+            else:
+                s.add(GlobalSetting(key=key, value=req.value))
+            s.commit()
         return {"ok": True}
 
     @app.get("/admin/keys", dependencies=[Depends(_require_admin)])
     def list_keys(limit: int = 100, offset: int = 0):
-        with _db() as conn:
-            rows = conn.execute(
-                "SELECT * FROM licenses ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                (limit, offset),
-            ).fetchall()
-        return [dict(r) for r in rows]
+        with _db() as s:
+            rows = s.query(License).order_by(License.created_at.desc())\
+                     .limit(limit).offset(offset).all()
+        return [
+            {c.name: getattr(r, c.name) for c in License.__table__.columns}
+            for r in rows
+        ]
 
     @app.get("/admin/usage", dependencies=[Depends(_require_admin)])
     def usage_stats(key: Optional[str] = None):
-        with _db() as conn:
+        with _db() as s:
             if key:
-                rows = conn.execute(
-                    "SELECT * FROM usage_log WHERE license_key=? ORDER BY ts DESC LIMIT 500",
-                    (key.upper(),),
-                ).fetchall()
+                rows = s.query(UsageLog)\
+                        .filter_by(license_key=key.upper())\
+                        .order_by(UsageLog.ts.desc()).limit(500).all()
+                return [
+                    {c.name: getattr(r, c.name) for c in UsageLog.__table__.columns}
+                    for r in rows
+                ]
             else:
-                rows = conn.execute(
+                rows = s.execute(text(
                     "SELECT license_key, SUM(calls) as total_calls, COUNT(*) as pings "
                     "FROM usage_log GROUP BY license_key ORDER BY total_calls DESC"
-                ).fetchall()
-        return [dict(r) for r in rows]
+                )).fetchall()
+                return [dict(r._mapping) for r in rows]
 
     @app.get("/admin/activations/{key}", dependencies=[Depends(_require_admin)])
     def list_activations(key: str):
-        with _db() as conn:
-            rows = conn.execute(
-                "SELECT * FROM activations WHERE license_key=? ORDER BY last_seen DESC",
-                (key.upper(),),
-            ).fetchall()
-        return [dict(r) for r in rows]
+        with _db() as s:
+            rows = s.query(Activation)\
+                    .filter_by(license_key=key.upper())\
+                    .order_by(Activation.last_seen.desc()).all()
+        return [
+            {c.name: getattr(r, c.name) for c in Activation.__table__.columns}
+            for r in rows
+        ]
 
     # ── Stripe webhook ───────────────────────────────────────────────────────
 
-    # Tier mapping: Stripe price IDs → pill.ai tiers
     _STRIPE_TIER_MAP = {
-        "starter": ("starter", 1_000),
-        "pro":     ("pro",     10_000),
+        "starter":    ("starter",    1_000),
+        "pro":        ("pro",        10_000),
         "enterprise": ("enterprise", -1),
     }
 
     @app.post("/webhooks/stripe")
     async def stripe_webhook(request: Request):
-        """
-        Receive Stripe events and update license tiers automatically.
-        Signature is verified with STRIPE_WEBHOOK_SECRET before any processing.
-        """
         if not STRIPE_WEBHOOK_SECRET:
             raise HTTPException(status_code=503, detail="Stripe webhook not configured")
-
         payload = await request.body()
         sig_header = request.headers.get("stripe-signature", "")
-
-        # Verify signature — prevents anyone from forging activation requests
         try:
             import stripe as stripe_lib
             event = stripe_lib.Webhook.construct_event(
@@ -326,55 +336,50 @@ if HAS_SERVER_DEPS:
 
         event_type = event["type"]
         data = event["data"]["object"]
-
         if event_type in ("customer.subscription.created", "customer.subscription.updated"):
             _handle_subscription_active(data)
         elif event_type in ("customer.subscription.deleted", "invoice.payment_failed"):
             _handle_subscription_cancelled(data)
-
         return {"ok": True}
 
     def _handle_subscription_active(subscription: dict):
-        import json
-        email = subscription.get("customer_email") or ""
-        metadata = subscription.get("metadata", {})
+        email      = subscription.get("customer_email") or ""
+        metadata   = subscription.get("metadata", {})
         license_key = metadata.get("license_key", "").upper()
-        tier_name = metadata.get("pill_tier", "starter")
-
+        tier_name  = metadata.get("pill_tier", "starter")
         tier, daily_limit = _STRIPE_TIER_MAP.get(tier_name, ("starter", 1_000))
         now = datetime.now(timezone.utc).isoformat()
-
-        with _db() as conn:
-            existing = conn.execute(
-                "SELECT key FROM licenses WHERE key=?", (license_key,)
-            ).fetchone()
-            if existing:
-                conn.execute(
-                    "UPDATE licenses SET status='active', tier=?, daily_call_limit=?, updated_at=? WHERE key=?",
-                    (tier, daily_limit, now, license_key),
-                )
+        with _db() as s:
+            row = s.get(License, license_key)
+            if row:
+                row.status = "active"
+                row.tier = tier
+                row.daily_call_limit = daily_limit
+                row.updated_at = now
             else:
-                # Auto-create key on first subscription if not pre-issued
                 new_key = license_key or "PILLAI-" + "-".join(
                     secrets.token_hex(3).upper() for _ in range(4)
                 )
-                conn.execute("""
-                    INSERT OR IGNORE INTO licenses
-                    (key, status, tier, email, daily_call_limit, features, message, created_at, updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?)
-                """, (new_key, "active", tier, email, daily_limit, "[]", "", now, now))
+                s.add(License(
+                    key=new_key, status="active", tier=tier,
+                    email=email, daily_call_limit=daily_limit,
+                    features="[]", message="", created_at=now, updated_at=now,
+                ))
+            s.commit()
 
     def _handle_subscription_cancelled(subscription: dict):
-        metadata = subscription.get("metadata", {})
-        license_key = metadata.get("license_key", "").upper()
+        license_key = subscription.get("metadata", {}).get("license_key", "").upper()
         if not license_key:
             return
         now = datetime.now(timezone.utc).isoformat()
-        with _db() as conn:
-            conn.execute(
-                "UPDATE licenses SET status='suspended', tier='free', daily_call_limit=100, updated_at=? WHERE key=?",
-                (now, license_key),
-            )
+        with _db() as s:
+            row = s.get(License, license_key)
+            if row:
+                row.status = "suspended"
+                row.tier = "free"
+                row.daily_call_limit = 100
+                row.updated_at = now
+                s.commit()
 
     @app.get("/health")
     def health():
