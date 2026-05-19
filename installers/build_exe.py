@@ -33,6 +33,13 @@ def main():
     )
     print(f"[build] Relay URL baked: {relay_url}")
 
+    # Incluir el JSON de precios de litellm (PyInstaller no lo detecta solo)
+    import litellm as _litellm
+    litellm_dir = Path(_litellm.__file__).parent
+    litellm_json = litellm_dir / "model_prices_and_context_window_backup.json"
+
+    sep = ";" if sys.platform == "win32" else ":"
+
     # PyInstaller command
     cmd = [
         sys.executable, "-m", "PyInstaller",
@@ -43,23 +50,29 @@ def main():
         "--specpath", str(ROOT / "installers"),
         # Entry point
         str(ROOT / "interpreter" / "_entry.py"),
-        # Hidden imports that PyInstaller misses
+        # Datos de litellm que PyInstaller no incluye automáticamente
+        "--add-data", f"{litellm_json}{sep}litellm",
+        # Hidden imports
         "--hidden-import", "litellm",
         "--hidden-import", "litellm.utils",
         "--hidden-import", "litellm.main",
-        "--hidden-import", "langgraph",
-        "--hidden-import", "langchain_core",
+        "--hidden-import", "litellm.litellm_core_utils",
         "--hidden-import", "pydantic",
         "--hidden-import", "rich",
         "--hidden-import", "httpx",
-        "--hidden-import", "sqlalchemy",
+        "--hidden-import", "tkinter",
+        "--hidden-import", "pystray",
+        "--hidden-import", "keyboard",
+        "--hidden-import", "PIL",
+        "--hidden-import", "PIL.Image",
+        "--hidden-import", "PIL.ImageDraw",
         "--hidden-import", "licensing.activation",
         "--hidden-import", "licensing.models",
         "--hidden-import", "interpreter.relay_router",
         "--hidden-import", "interpreter._relay_config",
         "--hidden-import", "interpreter._hw_id",
-        # Suppress console on Windows for a cleaner UX (remove for debugging)
-        # "--noconsole",   # uncomment for GUI mode
+        "--hidden-import", "pill_ai.tray",
+        "--hidden-import", "pill_ai.overlay",
         "--clean",
         "--noconfirm",
     ]
