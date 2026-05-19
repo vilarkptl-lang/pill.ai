@@ -17,6 +17,8 @@ import sys
 
 
 def _check_venv():
+    if getattr(sys, "frozen", False):
+        return  # dentro de un .exe de PyInstaller — no aplica
     if sys.prefix == sys.base_prefix:
         print(
             "\033[33m[pill.ai] WARNING: running outside a virtualenv. "

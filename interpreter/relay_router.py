@@ -13,13 +13,34 @@ from typing import Optional
 
 import httpx
 
-# Relay URL: env var overrides baked-in value (baked in by `make exe`)
-try:
-    from interpreter._relay_config import RELAY_URL as _BAKED_URL
-except ImportError:
-    _BAKED_URL = None
+import pathlib
+import sys
 
-RELAY_URL: Optional[str] = os.getenv("PILLAI_RELAY_URL") or _BAKED_URL
+
+def _load_baked_url() -> Optional[str]:
+    # 1. Módulo Python (desarrollo normal)
+    try:
+        from interpreter._relay_config import RELAY_URL as _u
+        if _u:
+            return _u
+    except ImportError:
+        pass
+    # 2. Archivo .txt incluido en el bundle de PyInstaller (más confiable en .exe)
+    try:
+        if getattr(sys, "frozen", False):
+            base = pathlib.Path(sys._MEIPASS) / "interpreter" / "_relay_url.txt"
+        else:
+            base = pathlib.Path(__file__).parent / "_relay_url.txt"
+        if base.exists():
+            url = base.read_text().strip()
+            if url:
+                return url
+    except Exception:
+        pass
+    return None
+
+
+RELAY_URL: Optional[str] = os.getenv("PILLAI_RELAY_URL") or _load_baked_url()
 
 # Timeout for relay calls (seconds) — generous for complex tasks
 _TIMEOUT = 120
