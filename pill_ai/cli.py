@@ -16,7 +16,18 @@ from __future__ import annotations
 import sys
 
 
+def _check_venv():
+    if sys.prefix == sys.base_prefix:
+        print(
+            "\033[33m[pill.ai] WARNING: running outside a virtualenv. "
+            "Install with 'make install' and activate with "
+            "'source .venv/bin/activate' to avoid polluting system Python.\033[0m",
+            file=sys.stderr,
+        )
+
+
 def main():
+    _check_venv()
     args = sys.argv[1:]
 
     if not args:
