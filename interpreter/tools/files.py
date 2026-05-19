@@ -1,20 +1,11 @@
-"""
-Fork of OpenInterpreter computer/files.py
-OI had minimal file helpers; pill.ai adds find, read_lines, safe_write.
-"""
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path
 from typing import List, Optional
 
 
 class FilesTool:
-    """Basic file I/O helpers — mirrors OI's computer.files interface."""
-
-    # ── Read ──────────────────────────────────────────────────────────────
-
     def read(self, path: str, encoding: str = "utf-8") -> str:
         return Path(path).expanduser().read_text(encoding=encoding)
 
@@ -31,8 +22,6 @@ class FilesTool:
     def size(self, path: str) -> int:
         return Path(path).expanduser().stat().st_size
 
-    # ── Write ─────────────────────────────────────────────────────────────
-
     def write(self, path: str, content: str, encoding: str = "utf-8") -> str:
         p = Path(path).expanduser()
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -45,13 +34,10 @@ class FilesTool:
             f.write(content)
         return str(p)
 
-    # ── Browse ────────────────────────────────────────────────────────────
-
     def list(self, path: str = ".", pattern: str = "*") -> List[str]:
         return [str(p) for p in Path(path).expanduser().glob(pattern)]
 
     def find(self, root: str, name_pattern: str) -> List[str]:
-        """Recursive find by filename glob."""
         return [str(p) for p in Path(root).expanduser().rglob(name_pattern)]
 
     def tree(self, path: str = ".", max_depth: int = 3) -> str:
@@ -69,8 +55,6 @@ class FilesTool:
 
         _walk(root, 0)
         return "\n".join(lines)
-
-    # ── Manage ────────────────────────────────────────────────────────────
 
     def mkdir(self, path: str) -> str:
         p = Path(path).expanduser()

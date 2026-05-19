@@ -1,15 +1,9 @@
-"""
-Fork of OpenInterpreter tools/shell.py
-Extended with: persistent session, sudo support, output streaming, timeout.
-"""
 from __future__ import annotations
 
 import os
-import queue
 import re
 import subprocess
 import threading
-import time
 from typing import Callable, Optional
 
 
@@ -27,7 +21,6 @@ _DANGEROUS_PATTERNS = [
     r"\bpkill\s+-9\b",
 ]
 
-
 _SAFE_MODE_OFF_WARNING = (
     "\033[33m[pill.ai] WARNING: safe_mode='off' — shell commands execute without "
     "confirmation, including sudo and rm -rf. Set safe_mode='ask' to enable HITL.\033[0m"
@@ -35,14 +28,6 @@ _SAFE_MODE_OFF_WARNING = (
 
 
 class ShellTool:
-    """
-    Persistent shell session with:
-    - Streaming output
-    - Timeout enforcement
-    - sudo support (asks for password once, caches in memory only)
-    - Dangerous command detection
-    """
-
     def __init__(self, safe_mode: str = "ask", timeout: int = 60, _suppress_warning: bool = False):
         self.safe_mode = safe_mode
         self.timeout = timeout
@@ -53,30 +38,17 @@ class ShellTool:
             import sys
             print(_SAFE_MODE_OFF_WARNING, file=sys.stderr)
 
-    # ── Public API ────────────────────────────────────────────────────────
-
-    def run(
-        self,
-        command: str,
-        timeout: Optional[int] = None,
-        on_output: Optional[Callable[[str], None]] = None,
-        allow_sudo: bool = True,
-    ) -> dict:
-        """
-        Execute `command` in a subprocess.
-        Returns {"stdout": str, "stderr": str, "returncode": int, "timed_out": bool}
-        """
+    def run(self, command: str, timeout: Optional[int] = None,
+            on_output: Optional[Callable[[str], None]] = None,
+            allow_sudo: bool = True) -> dict:
         if self._is_dangerous(command):
             if not self._confirm(f"DANGEROUS: {command}"):
                 return {"stdout": "", "stderr": "Blocked by user.", "returncode": -1, "timed_out": False}
-
         if "sudo" in command and allow_sudo:
             command = self._inject_sudo(command)
-
         return self._execute(command, timeout or self.timeout, on_output)
 
     def run_python(self, code: str, **kwargs) -> dict:
-        """Run Python code via `python3 -c`."""
         escaped = code.replace('"', '\\"')
         return self.run(f'python3 -c "{escaped}"', **kwargs)
 
@@ -90,26 +62,14 @@ class ShellTool:
         else:
             raise FileNotFoundError(f"Directory not found: {path}")
 
-    # ── Internal ──────────────────────────────────────────────────────────
-
-    def _execute(
-        self,
-        command: str,
-        timeout: int,
-        on_output: Optional[Callable[[str], None]],
-    ) -> dict:
+    def _execute(self, command: str, timeout: int,
+                 on_output: Optional[Callable[[str], None]]) -> dict:
         stdout_lines: list[str] = []
         stderr_lines: list[str] = []
         timed_out = False
-
         proc = subprocess.Popen(
-            command,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            cwd=self._cwd,
-            env=os.environ.copy(),
+            command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, cwd=self._cwd, env=os.environ.copy(),
         )
 
         def _read(pipe, store, label):
@@ -122,16 +82,13 @@ class ShellTool:
         t_err = threading.Thread(target=_read, args=(proc.stderr, stderr_lines, "stderr"))
         t_out.start()
         t_err.start()
-
         try:
             proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             proc.kill()
             timed_out = True
-
         t_out.join()
         t_err.join()
-
         return {
             "stdout": "".join(stdout_lines),
             "stderr": "".join(stderr_lines),
@@ -140,10 +97,7 @@ class ShellTool:
         }
 
     def _is_dangerous(self, command: str) -> bool:
-        for pattern in _DANGEROUS_PATTERNS:
-            if re.search(pattern, command):
-                return True
-        return False
+        return any(re.search(p, command) for p in _DANGEROUS_PATTERNS)
 
     def _confirm(self, action: str) -> bool:
         if self.safe_mode == "off":
@@ -152,13 +106,11 @@ class ShellTool:
         return answer in ("y", "yes")
 
     def terminate(self) -> None:
-        """Kill any running subprocess — mirrors OI's Terminal.terminate()."""
         if self._process and self._process.poll() is None:
             self._process.kill()
         self._process = None
 
     def _inject_sudo(self, command: str) -> str:
-        """Prepend sudo password via stdin if needed."""
         if "sudo " not in command:
             return command
         if self._sudo_password is None:
