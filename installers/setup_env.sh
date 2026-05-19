@@ -18,7 +18,6 @@ done
 # ── Leer API keys (sin imprimirlas) ──────────────────────────────────────
 DEEPSEEK_API_KEY=$(grep -oP 'DEEPSEEK_API_KEY=\K.*' "$RELAY_ENV")
 GEMINI_API_KEY=$(grep -oP 'GOOGLE_API_KEY=\K.*' "$RELAY_ENV")
-ANTHROPIC_API_KEY=$(grep -oP 'ANTHROPIC_API_KEY=\K.*' "$RELAY_ENV")
 
 # ── Leer credenciales MySQL ───────────────────────────────────────────────
 DB_HOST=$(grep -oP 'DB_HOST=\K.*' "$BACKEND_ENV")
@@ -48,7 +47,6 @@ PILLAI_DB_URL=${DB_URL}
 
 GEMINI_API_KEY=${GEMINI_API_KEY}
 DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
-ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
 
 PILLAI_MODEL_FAST=gemini/gemini-2.0-flash-exp
 PILLAI_MODEL_MEDIUM=deepseek/deepseek-chat
