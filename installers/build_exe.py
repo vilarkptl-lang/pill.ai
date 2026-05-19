@@ -65,6 +65,10 @@ def main():
         "--hidden-import", "interpreter._hw_id",
         "--hidden-import", "pill_ai.tray",
         "--hidden-import", "pill_ai.overlay",
+        "--hidden-import", "pill_ai.cli",
+        "--collect-all", "pill_ai",
+        "--collect-all", "licensing",
+        "--collect-all", "interpreter",
         "--clean",
         "--noconfirm",
     ]
