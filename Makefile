@@ -29,7 +29,7 @@ lint: check-venv
 server: check-venv
 	@test -f .env || (echo "ERROR: crea .env primero — bash installers/setup_env.sh" && exit 1)
 	env $(cat .env | grep -v '^#' | grep -v '^$$' | xargs) \
-		uvicorn licensing.server:app --host 0.0.0.0 --port 8080 --reload
+		uvicorn licensing.server:app --host 0.0.0.0 --port 8181 --reload
 
 # Build distributable .exe — bakes relay URL into the binary
 # Usage: PILLAI_RELAY_URL=https://your-server.com make exe
