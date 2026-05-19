@@ -28,11 +28,11 @@ def run_tray():
         import keyboard
     except ImportError:
         print("[pill.ai] pystray / keyboard not installed — running in CLI mode")
-        from pill_ai.cli import _run_interactive
+        from .cli import _run_interactive
         _run_interactive()
         return
 
-    from pill_ai.overlay import OverlayWindow
+    from .overlay import OverlayWindow
 
     overlay = OverlayWindow()
 
