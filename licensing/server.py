@@ -384,3 +384,63 @@ if HAS_SERVER_DEPS:
     @app.get("/health")
     def health():
         return {"status": "ok", "service": "pill.ai-license"}
+
+    # ── Relay endpoint ───────────────────────────────────────────────────────
+
+    class RelayRequest(BaseModel):
+        key: str
+        hw_id: str
+        messages: list
+        task_hint: str = ""
+
+    @app.post("/v1/relay")
+    def relay(req: RelayRequest):
+        """
+        Proxy LLM calls through the owner's API keys.
+        - Validates license (free tier always allowed)
+        - Picks model automatically based on task complexity
+        - Returns response text only — model name never sent to client
+        """
+        from licensing.relay import relay_complete
+
+        # Validate license (reuse existing logic)
+        with _db() as s:
+            free_setting = s.get(GlobalSetting, "free_tier_enabled")
+            free_enabled = (free_setting.value == "true") if free_setting else True
+
+            if req.key.upper() == "FREE":
+                if not free_enabled:
+                    raise HTTPException(status_code=403, detail="Free tier disabled")
+            else:
+                row = s.get(License, req.key.upper())
+                if not row or row.status not in ("active",):
+                    raise HTTPException(status_code=403, detail="Invalid or inactive license")
+
+                # Rate limiting: check daily usage
+                limit_setting = s.get(GlobalSetting, "free_daily_limit")
+                limit = row.daily_call_limit
+                if limit > 0:
+                    import time
+                    day_start = int(time.time()) - 86_400
+                    usage_today = s.query(UsageLog).filter(
+                        UsageLog.license_key == req.key.upper(),
+                        UsageLog.ts >= day_start,
+                    ).with_entities(__import__("sqlalchemy").func.sum(UsageLog.calls)).scalar() or 0
+                    if usage_today >= limit:
+                        raise HTTPException(status_code=429, detail="Daily call limit reached")
+
+        # Call LLM with server-side keys — response only, no model info
+        content = relay_complete(req.messages, req.task_hint)
+
+        # Log usage
+        import time
+        with _db() as s:
+            s.add(UsageLog(
+                license_key=req.key.upper(),
+                hw_id=req.hw_id,
+                calls=1,
+                ts=int(time.time()),
+            ))
+            s.commit()
+
+        return {"content": content}

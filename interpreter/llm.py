@@ -1,10 +1,16 @@
 """
-Fork of OpenInterpreter llm.py — extended with LiteLLM ultra-cheap routing.
+Fork of OpenInterpreter llm.py — extended with LiteLLM ultra-cheap routing
+and transparent relay mode (owner's API keys, users see nothing).
 
-Strategy (90% cheap, 10% fallback):
+Direct mode (default — user needs own API keys):
   - Reasoning/code:  deepseek/deepseek-chat   (~$0.14/M tokens)
   - Vision:          gemini/gemini-2.0-flash   (~$0.10/M tokens)
   - Fallback:        gpt-4o-mini               (~$0.15/M tokens)
+
+Relay mode (PILLAI_RELAY_URL is set — used in distributed .exe):
+  - All calls route through owner's server
+  - Model selected server-side — never exposed to client
+  - No API keys needed on the client machine
 """
 from __future__ import annotations
 
@@ -29,10 +35,8 @@ COST_PER_MODEL = {
 
 class LLMRouter:
     """
-    Wraps LiteLLM with:
-    - Automatic model selection based on task type
-    - Per-task budget enforcement
-    - Usage tracking
+    Wraps LiteLLM with automatic model selection, budget tracking,
+    and transparent relay mode when PILLAI_RELAY_URL is configured.
     """
 
     def __init__(
@@ -48,14 +52,33 @@ class LLMRouter:
         self.budget_per_task = budget_per_task
         self._session_cost = 0.0
 
+        # Relay mode — auto-detected from env / baked config
+        self._relay = None
+        from interpreter.relay_router import is_relay_mode, RELAY_URL
+        if is_relay_mode():
+            from interpreter.relay_router import RelayRouter
+            from licensing.activation import get_license_status
+            from interpreter._hw_id import get_hw_id
+            lic = get_license_status()
+            self._relay = RelayRouter(
+                relay_url=RELAY_URL,
+                license_key=lic.key or "FREE",
+                hw_id=get_hw_id(),
+            )
+
     def complete(
         self,
         messages: list[dict],
         model: Optional[str] = None,
         has_images: bool = False,
         stream: bool = False,
+        task_hint: str = "",
         **kwargs,
     ) -> str | Iterator[str]:
+        # Relay mode: all calls go through owner's server
+        if self._relay and not has_images:
+            return self._relay.complete(messages, task_hint=task_hint)
+
         if not HAS_LITELLM:
             raise ImportError("litellm is required: pip install litellm")
 
