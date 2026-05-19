@@ -1,45 +1,43 @@
 #!/usr/bin/env bash
 # installers/setup_env.sh
-# Genera .env de pill.ai leyendo las API keys del relay existente.
+# Genera .env de pill.ai leyendo keys y DB del relay/backend existente.
 # Correr en el servidor: bash installers/setup_env.sh
 
 set -e
 
 RELAY_ENV="/var/www/html/vilarkptl.com/ai-monitor/relay/.env"
+BACKEND_ENV="/var/www/html/vilarkptl.com/ai-monitor/backend/.env"
 PILL_DIR="/var/www/html/pill.ai"
 OUT="$PILL_DIR/.env"
 
-if [ ! -f "$RELAY_ENV" ]; then
-  echo "ERROR: no encontré $RELAY_ENV"
-  exit 1
-fi
+# ── Verificar archivos fuente ─────────────────────────────────────────────
+for f in "$RELAY_ENV" "$BACKEND_ENV"; do
+  [ -f "$f" ] || { echo "ERROR: no encontré $f"; exit 1; }
+done
 
-# Extraer valores sin imprimirlos en pantalla
-DEEPSEEK_API_KEY=$(grep '^DEEPSEEK_API_KEY=' "$RELAY_ENV" | cut -d= -f2-)
-GEMINI_API_KEY=$(grep '^GOOGLE_API_KEY=' "$RELAY_ENV" | cut -d= -f2-)
-ANTHROPIC_API_KEY=$(grep '^ANTHROPIC_API_KEY=' "$RELAY_ENV" | cut -d= -f2-)
+# ── Leer API keys (sin imprimirlas) ──────────────────────────────────────
+DEEPSEEK_API_KEY=$(grep -oP 'DEEPSEEK_API_KEY=\K.*' "$RELAY_ENV")
+GEMINI_API_KEY=$(grep -oP 'GOOGLE_API_KEY=\K.*' "$RELAY_ENV")
+ANTHROPIC_API_KEY=$(grep -oP 'ANTHROPIC_API_KEY=\K.*' "$RELAY_ENV")
 
-# Validar que se encontraron
-missing=0
-[ -z "$DEEPSEEK_API_KEY" ]  && echo "WARN: DEEPSEEK_API_KEY no encontrada en relay .env"  && missing=$((missing+1))
-[ -z "$GEMINI_API_KEY" ]    && echo "WARN: GOOGLE_API_KEY no encontrada en relay .env"    && missing=$((missing+1))
-[ -z "$ANTHROPIC_API_KEY" ] && echo "WARN: ANTHROPIC_API_KEY no encontrada en relay .env" && missing=$((missing+1))
+# ── Leer credenciales MySQL ───────────────────────────────────────────────
+DB_HOST=$(grep -oP 'DB_HOST=\K.*' "$BACKEND_ENV")
+DB_USER=$(grep -oP 'DB_USER=\K.*' "$BACKEND_ENV")
+DB_PASS=$(grep -oP 'DB_PASS=\K.*' "$BACKEND_ENV")
+DB_NAME=$(grep -oP 'DB_NAME=\K.*' "$BACKEND_ENV")
+DB_HOST="${DB_HOST:-localhost}"
+DB_URL="mysql+pymysql://${DB_USER}:${DB_PASS}@${DB_HOST}/${DB_NAME:-pillai}"
 
-if [ "$missing" -eq 3 ]; then
-  echo "ERROR: no se encontró ninguna key en $RELAY_ENV"
-  exit 1
-fi
+# ── Crear DB si no existe ────────────────────────────────────────────────
+mysql -u"$DB_USER" -p"$DB_PASS" -h"$DB_HOST" \
+  -e "CREATE DATABASE IF NOT EXISTS \`${DB_NAME:-pillai}\`;" 2>/dev/null \
+  && echo "OK: base de datos ${DB_NAME:-pillai} lista" \
+  || echo "WARN: no se pudo crear la DB (puede que ya exista)"
 
-# Pedir datos que no vienen del relay
-read -rp "PILLAI_ADMIN_SECRET (presiona Enter para generar uno): " ADMIN_SECRET
-if [ -z "$ADMIN_SECRET" ]; then
-  ADMIN_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
-fi
+# ── Generar admin secret automáticamente ─────────────────────────────────
+ADMIN_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
 
-read -rp "MySQL URL [default: mysql+pymysql://root:@localhost/pillai]: " DB_URL
-DB_URL="${DB_URL:-mysql+pymysql://root:@localhost/pillai}"
-
-# Escribir .env (sin mostrar los valores en pantalla)
+# ── Escribir .env ─────────────────────────────────────────────────────────
 cat > "$OUT" <<EOF
 # pill.ai server environment — generado por installers/setup_env.sh
 # NUNCA subir este archivo a git
@@ -61,6 +59,9 @@ PILLAI_CACHE_DIR=~/.pill.ai
 EOF
 
 chmod 600 "$OUT"
+echo "OK: $OUT creado (chmod 600)"
+echo "OK: PILLAI_ADMIN_SECRET generado automáticamente"
 echo ""
-echo "OK: $OUT creado con permisos 600"
-echo "Siguiente paso: make server"
+echo "Siguiente paso:"
+echo "  source /var/www/html/pill.ai/.venv/bin/activate && make server"
+
