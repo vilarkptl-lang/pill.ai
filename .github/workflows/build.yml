@@ -32,11 +32,16 @@ jobs:
 
       - name: System deps (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get install -y python3-tk libgirepository1.0-dev
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-tk libgirepository1.0-dev \
+            gir1.2-ayatana-appindicator3-0.1 libayatana-appindicator3-dev \
+            libdbus-glib-1-dev python3-gi || true
 
       - name: Install Python deps
         run: |
-          pip install pyinstaller python-dotenv litellm --quiet
+          pip install --quiet pyinstaller python-dotenv litellm Pillow
+          pip install --quiet pystray keyboard || true
           pip install -e . --no-deps --quiet
 
       - name: Build binary
@@ -50,10 +55,11 @@ jobs:
         run: mv dist/pillai dist/${{ matrix.artifact }}
 
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: latest-build
           name: "Latest Build"
           prerelease: true
+          make_latest: false
           files: dist/${{ matrix.artifact }}
           token: ${{ secrets.GITHUB_TOKEN }}
