@@ -1,0 +1,61 @@
+name: Build binaries
+
+on:
+  push:
+    branches: [claude/add-licensing-system-KsFAw, main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: pillai.exe
+            binary:   pillai.exe
+          - os: macos-latest
+            artifact: pillai-mac
+            binary:   pillai
+          - os: ubuntu-latest
+            artifact: pillai-linux
+            binary:   pillai
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: System deps (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get install -y python3-tk
+
+      - name: Install Python deps
+        run: |
+          pip install pyinstaller python-dotenv --quiet
+          pip install -e . --no-deps --quiet
+
+      - name: Build binary
+        env:
+          PILLAI_RELAY_URL: http://143.198.228.78:8181
+        run: python installers/build_exe.py
+
+      - name: Rename (Linux / Mac)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: mv dist/pillai dist/${{ matrix.artifact }}
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-build
+          name: "Latest Build"
+          prerelease: true
+          make_latest: false
+          files: dist/${{ matrix.artifact }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -36,9 +36,12 @@ def main():
 
     sep = ";" if sys.platform == "win32" else ":"
 
+    extra = ["--windowed"] if sys.platform == "win32" else []
+
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--onefile",
+        *extra,
         "--name", "pillai",
         "--distpath", str(ROOT / "dist"),
         "--workpath", str(ROOT / "build" / "pyinstaller"),
