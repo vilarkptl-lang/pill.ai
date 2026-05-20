@@ -14,7 +14,7 @@ try:
     HAS_GUI = True
     pyautogui.FAILSAFE = True
     pyautogui.PAUSE = 0.05
-except ImportError:
+except Exception:
     HAS_GUI = False
 
 try:
