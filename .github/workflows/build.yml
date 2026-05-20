@@ -5,6 +5,9 @@ on:
     branches: [claude/add-licensing-system-KsFAw, main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -13,13 +16,10 @@ jobs:
         include:
           - os: windows-latest
             artifact: pillai.exe
-            binary:   pillai.exe
           - os: macos-latest
             artifact: pillai-mac
-            binary:   pillai
           - os: ubuntu-latest
             artifact: pillai-linux
-            binary:   pillai
 
     runs-on: ${{ matrix.os }}
 
@@ -32,11 +32,11 @@ jobs:
 
       - name: System deps (Linux)
         if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get install -y python3-tk
+        run: sudo apt-get install -y python3-tk libgirepository1.0-dev
 
       - name: Install Python deps
         run: |
-          pip install pyinstaller python-dotenv --quiet
+          pip install pyinstaller python-dotenv litellm --quiet
           pip install -e . --no-deps --quiet
 
       - name: Build binary
@@ -50,12 +50,10 @@ jobs:
         run: mv dist/pillai dist/${{ matrix.artifact }}
 
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: latest-build
           name: "Latest Build"
           prerelease: true
-          make_latest: false
           files: dist/${{ matrix.artifact }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
