@@ -68,6 +68,38 @@ O simplemente copiar `dist/pillai.exe` al PC y ejecutarlo (doble clic o desde cm
 claude/add-licensing-system-KsFAw
 ```
 
+## Deploy desde agentes (sin SSH)
+
+Los agentes pueden hacer deploy llamando al webhook HTTP:
+
+```bash
+curl -X POST http://143.198.228.78:8181/admin/deploy \
+  -H "x-deploy-secret: $PILLAI_DEPLOY_SECRET"
+```
+
+O desde Python:
+```python
+import requests
+requests.post(
+    "http://143.198.228.78:8181/admin/deploy",
+    headers={"x-deploy-secret": DEPLOY_SECRET},
+)
+```
+
+**Setup en el servidor (una sola vez):**
+```bash
+# Agregar al .env del servidor:
+echo 'PILLAI_DEPLOY_SECRET=<secret-que-generes>' >> /var/www/html/vilarkptl.com/pill-relay/.env
+
+# Asegurarse de que git pull funcione sin contraseña:
+cd /var/www/html/vilarkptl.com/pill-relay
+git remote set-url origin https://github.com/vilarkptl-lang/pill.ai.git
+# Si el repo es privado, usar token:
+# git remote set-url origin https://<token>@github.com/vilarkptl-lang/pill.ai.git
+```
+
+El deploy secret vive **solo en el `.env` del servidor** y en la variable de entorno de cada agente (`PILLAI_DEPLOY_SECRET`). Nunca se commitea al repo.
+
 ## Reglas de seguridad (NO violar)
 
 - **Nunca** poner API keys de Anthropic/DeepSeek/Gemini en el repo

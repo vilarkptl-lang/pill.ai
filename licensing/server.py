@@ -468,3 +468,52 @@ if HAS_SERVER_DEPS:
             s.commit()
 
         return {"content": content}
+
+    # ── Deploy webhook ───────────────────────────────────────────────────────
+
+    DEPLOY_SECRET = os.getenv("PILLAI_DEPLOY_SECRET", "")
+
+    @app.post("/admin/deploy")
+    def deploy(x_deploy_secret: str = Header(...)):
+        """
+        Pull latest code from GitHub and restart the service.
+        Called by agents to deploy without SSH access.
+        """
+        import subprocess
+
+        if not DEPLOY_SECRET:
+            raise HTTPException(status_code=503, detail="Deploy not configured (PILLAI_DEPLOY_SECRET not set)")
+
+        if not hmac.compare_digest(x_deploy_secret, DEPLOY_SECRET):
+            raise HTTPException(status_code=403, detail="Invalid deploy secret")
+
+        project_dir = os.getenv("PILLAI_PROJECT_DIR", "/var/www/html/vilarkptl.com/pill-relay")
+
+        try:
+            pull = subprocess.run(
+                ["git", "pull", "origin", "claude/add-licensing-system-KsFAw"],
+                cwd=project_dir,
+                capture_output=True, text=True, timeout=60,
+            )
+            output = (pull.stdout + pull.stderr).strip()
+            if pull.returncode != 0:
+                raise HTTPException(status_code=500, detail=f"git pull failed:\n{output}")
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504, detail="git pull timed out")
+
+        # Restart service if systemd is available
+        restart_output = ""
+        try:
+            restart = subprocess.run(
+                ["systemctl", "restart", "pillai-relay"],
+                capture_output=True, text=True, timeout=15,
+            )
+            restart_output = (restart.stdout + restart.stderr).strip()
+        except Exception:
+            restart_output = "systemctl not available — manual restart required"
+
+        return {
+            "status": "ok",
+            "git_pull": output,
+            "restart": restart_output,
+        }
