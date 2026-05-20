@@ -9,31 +9,31 @@
 - **Servicio systemd**: `pillai-relay` (auto-arranca en boot)
 - **Verificar que corre**: `curl http://143.198.228.78:8181/health`
 
-## Repositorio en Mac
-
-El repo está en (ejecuta `pwd` dentro del repo para confirmarlo):
-
-```
-~/pill.ai
-```
-
-Ruta absoluta típica en Mac (depende del usuario):
-```
-/Users/<tu-usuario>/pill.ai
-```
-
-Para encontrarla en terminal:
-```bash
-cd ~/pill.ai && pwd
-```
-
-## Probar en Mac (modo local, sin construir .exe)
+## Probar en Mac — Primera vez (setup completo)
 
 ```bash
-cd ~/pill.ai                        # o la ruta donde clonaste el repo (ejecuta pwd para confirmar)
-git pull origin claude/add-licensing-system-KsFAw
+# 1. Clonar el repo (crea la carpeta ~/pill.ai)
+cd ~
+git clone https://github.com/vilarkptl-lang/pill.ai.git
+cd pill.ai
+git checkout claude/add-licensing-system-KsFAw
+
+# 2. Crear entorno virtual e instalar dependencias
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
 pip install pystray keyboard pillow
+
+# 3. Correr
+export PILLAI_RELAY_URL=http://143.198.228.78:8181
+python -m pill_ai.tray
+```
+
+## Probar en Mac — Uso diario (ya instalado)
+
+```bash
+cd ~/pill.ai
+source .venv/bin/activate
 export PILLAI_RELAY_URL=http://143.198.228.78:8181
 python -m pill_ai.tray
 ```
