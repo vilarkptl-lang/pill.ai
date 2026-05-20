@@ -34,15 +34,16 @@
 | 1.21 | Tests adicionales: `test_licensing.py`, `test_graph.py`, `test_llm_router.py` | ⬜ |
 | 1.22 | Página de precios `pill.ai/pricing` con Stripe Checkout | ⬜ |
 | 1.23 | **Docker sandbox básico** para shell_agent (aislamiento del host) | ⬜ |
-| 1.24 | **Memoria persistente entre sesiones** — historial de conversación + compactación semántica (tipo Claude Code) | ⬜ |
-| 1.25 | **Context injection automático** — leer `CLAUDE.md` / `skills.md` al arrancar, inyectar contexto del proyecto sin que el usuario lo pida | ⬜ |
-| 1.26 | **Plugin DAW / Ableton** — detectar proceso Ableton corriendo, leer archivos `.als` del proyecto activo, comandos específicos (tempo, pistas, plugins) | ⬜ |
-| 1.27 | **Detección de ventana activa** — saber qué app tiene el foco antes de responder; enriquecer contexto automáticamente (Excel abierto → modo hoja de cálculo, Ableton → modo DAW) | ⬜ |
-| 1.28 | **Compactación semántica de historial** — comprimir conversaciones largas sin perder contexto clave; base para memoria persistente | ⬜ |
-| 1.29 | **Skills grabables por el usuario** — cuando algo le gusta cómo sucede, le dice al agente "recuerda esto" y se guarda como skill local en `~/.pill.ai/skills.md`; el agente lo repite exactamente igual en el futuro | ⬜ |
-| 1.30 | **Cron jobs y triggers desde skills** — el usuario pide "repite esto cada mañana" o "hazlo cuando abra Ableton"; el agente crea el cron/trigger automáticamente y lo vincula a la skill grabada | ⬜ |
+| 1.24 | **Memoria persistente entre sesiones** — historial de conversación guardado en `~/.pill.ai/sessions/`; se carga automáticamente al abrir | ✅ |
+| 1.25 | **Context injection automático** — leer `skills.md` al arrancar, inyectar skills relevantes + historial compactado antes de cada llamada | ✅ |
+| 1.26 | **Plugin DAW / Ableton** — detectar proceso Ableton corriendo, listar archivos `.als` recientes, inyectar contexto automáticamente | ✅ |
+| 1.27 | **Detección de ventana activa** — saber qué app tiene el foco; se incluye en contexto local automáticamente (Win/Mac/Linux) | ✅ |
+| 1.28 | **Compactación semántica de historial** — cuando la sesión supera 20 mensajes, los más viejos se resumen vía relay y se reemplazan por 1 mensaje | ✅ |
+| 1.29 | **Skills grabables por el usuario** — el usuario dice "recuerda esto" y se extrae + guarda la skill en `~/.pill.ai/skills.md` con dedup semántico | ✅ |
+| 1.30 | **Cron jobs y triggers desde skills** — "repite esto cada mañana" → cron; "hazlo cuando abra Ableton" → process trigger; guardado en `~/.pill.ai/schedules.json` | ✅ |
 | 1.31 | **Multi-sesión básica** — múltiples agentes corriendo en paralelo (ej. uno buscando archivos mientras otro responde en el overlay) | ⬜ |
 | 1.32 | **Auto-updater** — relay expone `/version`; el .exe y el Orb comprueban al arrancar y notifican al usuario si hay versión nueva; el usuario descarga con un clic | ✅ |
+| 1.21 | Tests adicionales: `test_licensing.py`, `test_graph.py`, `test_llm_router.py` | ✅ |
 
 **Costo típico por tarea en Fase 1:**
 ```

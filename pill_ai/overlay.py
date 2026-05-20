@@ -27,7 +27,7 @@ class OverlayWindow:
     def __init__(self):
         self._root: tk.Tk | None = None
         self._lock = threading.Lock()
-        self._relay = _build_relay()
+        self._relay, self._relay_raw = _build_relay()
 
     def show(self):
         """Show or bring-to-front the overlay."""
@@ -80,14 +80,37 @@ class OverlayWindow:
                             state="disabled", cursor="arrow")
         resp_text.pack(fill="both", expand=True, padx=16, pady=(0, 12))
 
+        SESSION_ID = "overlay_default"
+
         def _submit(event=None):
             query = entry_var.get().strip()
             if not query:
                 return
             entry.config(state="disabled")
+
+            # Skill recording intent (1.29)
+            from pill_ai.skills_recorder import detect_remember_intent
+            if detect_remember_intent(query):
+                status.config(text="guardando skill…")
+                threading.Thread(
+                    target=_save_skill, args=(query,), daemon=True
+                ).start()
+                return
+
             status.config(text="pensando…")
             _show_response("")
             threading.Thread(target=_call_relay, args=(query,), daemon=True).start()
+
+        def _save_skill(query: str):
+            try:
+                from interpreter import memory
+                from pill_ai.skills_recorder import record_skill
+                history = memory.load(SESSION_ID)
+                skill_name = record_skill(history, query, self._relay_raw)
+                msg = f"Skill guardada: «{skill_name}»"
+            except Exception as exc:
+                msg = f"Error guardando skill: {exc}"
+            root.after(0, lambda: _on_done(msg))
 
         def _close(event=None):
             root.destroy()
@@ -122,14 +145,57 @@ class OverlayWindow:
 
         def _call_relay(query: str):
             try:
-                from pill_ai.local_exec import detect_intent, execute
-                intent = detect_intent(query)
+                from interpreter import memory
+                from pill_ai.local_exec import detect_intent, execute, active_window
+                from interpreter.scheduler import detect_schedule_intent
+
+                # Append user message to persistent history (1.24)
+                memory.append(SESSION_ID, "user", query)
+
+                # Local context (1.26 + 1.27)
+                intent    = detect_intent(query)
                 local_ctx = execute(query, intent) if intent else ""
-                result = self._relay(query, local_context=local_ctx)
+                win       = active_window()
+                if win and win not in local_ctx:
+                    local_ctx = f"Ventana activa: {win}\n{local_ctx}".strip()
+
+                # Skills context injection (1.25)
+                from interpreter.context_injector import ContextInjector
+                from pathlib import Path
+                injector   = ContextInjector(
+                    skills_path=Path.home() / ".pill.ai" / "skills.md",
+                    router=self._relay_raw,
+                )
+                history    = memory.compact_if_needed(SESSION_ID, self._relay_raw)
+                enriched   = injector.inject(history, query)
+
+                result = self._relay(query, local_context=local_ctx, extra_messages=enriched)
+
+                # Persist assistant response (1.24)
+                memory.append(SESSION_ID, "assistant", result)
+
+                # Cron / trigger intent (1.30)
+                sched = detect_schedule_intent(query)
+                if sched:
+                    _handle_schedule(query, result, sched)
+
                 root.after(0, lambda: _on_done(result))
             except Exception as exc:
                 msg = f"Error: {exc}"
                 root.after(0, lambda: _on_done(msg))
+
+        def _handle_schedule(query: str, last_result: str, sched: dict):
+            try:
+                from interpreter.scheduler import add_cron, add_trigger
+                from pill_ai.skills_recorder import record_skill
+                history   = []
+                skill_name = record_skill(history, query, self._relay_raw)
+                if sched["type"] == "cron":
+                    add_cron(skill_name, sched["expression"], query)
+                else:
+                    add_trigger(skill_name, sched["process"], query)
+            except Exception:
+                pass
 
         def _on_done(result: str):
             entry.config(state="normal")
@@ -147,24 +213,28 @@ class OverlayWindow:
 # ── Relay helper ──────────────────────────────────────────────────────────────
 
 def _build_relay():
-    """Return a callable(query, local_context) → str that calls the relay server."""
+    """Return (callable, router) — callable(query, local_context, extra_messages) → str."""
+    _fallback_router = None
+
     try:
         from interpreter.relay_router import RelayRouter, RELAY_URL
         from interpreter._hw_id import get_hw_id
     except ImportError:
-        def _no_relay(query, local_context=""):
+        def _no_relay(query, local_context="", extra_messages=None):
             return "[pill.ai] relay no configurado — falta PILLAI_RELAY_URL"
-        return _no_relay
+        return _no_relay, _fallback_router
 
     if not RELAY_URL:
-        def _no_url(query, local_context=""):
+        def _no_url(query, local_context="", extra_messages=None):
             return "[pill.ai] PILLAI_RELAY_URL no está configurado"
-        return _no_url
+        return _no_url, _fallback_router
 
     router = RelayRouter(relay_url=RELAY_URL, license_key="FREE", hw_id=get_hw_id())
 
-    def _call(query: str, local_context: str = "") -> str:
-        messages = []
+    def _call(query: str, local_context: str = "", extra_messages: list | None = None) -> str:
+        # extra_messages: injected context from ContextInjector (skills + history)
+        messages: list[dict] = list(extra_messages) if extra_messages else []
+
         if local_context:
             messages.append({
                 "role": "system",
@@ -176,7 +246,11 @@ def _build_relay():
                     "concisa y útil. Si encontraste archivos, lista los más relevantes."
                 ),
             })
-        messages.append({"role": "user", "content": query})
+
+        # Ensure the user query is the final message
+        if not messages or messages[-1].get("content") != query:
+            messages.append({"role": "user", "content": query})
+
         return router.complete(messages, task_hint=query)
 
-    return _call
+    return _call, router

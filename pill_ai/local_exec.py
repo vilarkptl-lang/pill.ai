@@ -32,9 +32,16 @@ _PROCESS_KEYWORDS = {
     "abierto", "abiertos", "open", "apps", "aplicaciones",
 }
 
+_ABLETON_KEYWORDS = {
+    "ableton", "live", "daw", "proyecto", "project", ".als", "pista", "track",
+    "tempo", "bpm", "plugin", "vst", "midi", "session", "clip", "mix",
+}
+
 
 def detect_intent(query: str) -> str | None:
     words = set(query.lower().split())
+    if words & _ABLETON_KEYWORDS:
+        return "ableton"
     if words & _FILE_SEARCH_KEYWORDS:
         return "file_search"
     if words & _SYSINFO_KEYWORDS:
@@ -44,10 +51,40 @@ def detect_intent(query: str) -> str | None:
     return None
 
 
+def active_window() -> str:
+    """Return the name of the currently focused window/app. (1.27)"""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            hwnd   = ctypes.windll.user32.GetForegroundWindow()
+            length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+            buf    = ctypes.create_unicode_buffer(length + 1)
+            ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
+            return buf.value
+        elif sys.platform == "darwin":
+            script = (
+                'tell application "System Events" to name of first '
+                'application process whose frontmost is true'
+            )
+            return subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=3,
+            ).stdout.strip()
+        else:
+            return subprocess.run(
+                ["xdotool", "getactivewindow", "getwindowname"],
+                capture_output=True, text=True, timeout=3,
+            ).stdout.strip()
+    except Exception:
+        return ""
+
+
 # ── Executors ────────────────────────────────────────────────────────────
 
 def execute(query: str, intent: str) -> str:
     try:
+        if intent == "ableton":
+            return _ableton_context()
         if intent == "file_search":
             return _file_search(query)
         if intent == "system_info":
@@ -185,3 +222,50 @@ def _running_processes() -> str:
             )
         except Exception as e:
             return f"[error listando procesos: {e}]"
+
+
+def _ableton_context() -> str:  # (1.26)
+    """Detect Ableton running + find recent .als project files."""
+    import datetime
+
+    ableton_running = False
+    try:
+        if sys.platform == "win32":
+            out = subprocess.run(["tasklist"], capture_output=True, text=True, timeout=5).stdout
+            ableton_running = "ableton" in out.lower()
+        else:
+            out = subprocess.run(["pgrep", "-i", "ableton"], capture_output=True, text=True, timeout=3).stdout
+            ableton_running = bool(out.strip())
+    except Exception:
+        pass
+
+    search_dirs = [Path.home() / "Music", Path.home() / "Documents", Path.home()]
+    als_files: list[Path] = []
+    for d in search_dirs:
+        if not d.exists():
+            continue
+        try:
+            for p in d.rglob("*.als"):
+                als_files.append(p)
+                if len(als_files) >= 30:
+                    break
+        except (PermissionError, OSError):
+            continue
+
+    als_files.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
+
+    result = ["Estado: Ableton Live está corriendo" if ableton_running
+              else "Estado: Ableton Live no está corriendo"]
+
+    if als_files:
+        result.append(f"\nProyectos .als recientes ({len(als_files)} total):")
+        for p in als_files[:8]:
+            try:
+                mtime = datetime.datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d")
+                result.append(f"  {p.name}  ({mtime})  →  {p.parent}")
+            except OSError:
+                result.append(f"  {p.name}")
+    else:
+        result.append("No se encontraron archivos .als")
+
+    return "\n".join(result)

@@ -52,40 +52,79 @@ def _build_app():
 
     @app.post("/chat")
     def chat(req: ChatRequest):
-        from pill_ai.local_exec import detect_intent, execute
         from interpreter.relay_router import RelayRouter, RELAY_URL
         from interpreter._hw_id import get_hw_id
+        from interpreter import memory
+        from interpreter.context_injector import ContextInjector
+        from pill_ai.local_exec import detect_intent, execute, active_window
+        from pill_ai.skills_recorder import detect_remember_intent, record_skill
+        from interpreter.scheduler import detect_schedule_intent, add_cron, add_trigger
+        from pathlib import Path
 
         if not RELAY_URL:
-            return {"content": "[pill.ai] PILLAI_RELAY_URL no configurado — "
-                               "exporta la variable antes de correr."}
+            return {"content": "[pill.ai] PILLAI_RELAY_URL no configurado"}
 
-        intent = detect_intent(req.message)
+        router = RelayRouter(relay_url=RELAY_URL, license_key="FREE", hw_id=get_hw_id())
+        sid    = req.session_id
+
+        # Skill recording intent (1.29)
+        if detect_remember_intent(req.message):
+            history    = memory.load(sid)
+            skill_name = record_skill(history, req.message, router)
+            return {"content": f"Skill guardada: «{skill_name}»"}
+
+        # Persist user message (1.24)
+        memory.append(sid, "user", req.message)
+
+        # Local context: Ableton (1.26) + active window (1.27)
+        intent    = detect_intent(req.message)
         local_ctx = execute(req.message, intent) if intent else ""
+        win       = active_window()
+        if win and win not in local_ctx:
+            local_ctx = f"Ventana activa: {win}\n{local_ctx}".strip()
 
-        messages = []
+        # Context injection: skills + compact history (1.25 + 1.28)
+        injector = ContextInjector(
+            skills_path=Path.home() / ".pill.ai" / "skills.md",
+            router=router,
+        )
+        history  = memory.compact_if_needed(sid, router)
+        messages = injector.inject(history, req.message)
+
         if local_ctx:
-            messages.append({
+            messages.insert(-1, {
                 "role": "system",
                 "content": (
-                    "Eres un asistente de computadora. El sistema ejecutó comandos "
-                    "locales y obtuvo el siguiente contexto:\n\n"
-                    f"{local_ctx}\n\n"
-                    "Usa esta información para responder de forma concisa y útil."
+                    "Contexto local de la PC del usuario:\n\n"
+                    f"{local_ctx}\n\nResponde de forma concisa y útil."
                 ),
             })
-        messages.append({"role": "user", "content": req.message})
+
+        # Ensure user message is last
+        if not messages or messages[-1].get("content") != req.message:
+            messages.append({"role": "user", "content": req.message})
 
         try:
-            router = RelayRouter(
-                relay_url=RELAY_URL,
-                license_key="FREE",
-                hw_id=get_hw_id(),
-            )
             result = router.complete(messages, task_hint=req.message)
-            return {"content": result}
         except Exception as exc:
             return {"content": f"Error: {exc}"}
+
+        # Persist response (1.24)
+        memory.append(sid, "assistant", result)
+
+        # Cron / trigger scheduling (1.30)
+        sched = detect_schedule_intent(req.message)
+        if sched:
+            try:
+                skill_name = record_skill(memory.load(sid), req.message, router)
+                if sched["type"] == "cron":
+                    add_cron(skill_name, sched["expression"], req.message)
+                else:
+                    add_trigger(skill_name, sched["process"], req.message)
+            except Exception:
+                pass
+
+        return {"content": result}
 
     return app
 
