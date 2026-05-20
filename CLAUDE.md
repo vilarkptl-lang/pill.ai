@@ -70,35 +70,62 @@ claude/add-licensing-system-KsFAw
 
 ## Deploy desde agentes (sin SSH)
 
-Los agentes pueden hacer deploy llamando al webhook HTTP:
+Los agentes controlan el servidor vía HTTP — sin SSH, mismo consumo de tokens.
 
-```bash
-curl -X POST http://143.198.228.78:8181/admin/deploy \
-  -H "x-deploy-secret: $PILLAI_DEPLOY_SECRET"
-```
+### Endpoints disponibles
 
-O desde Python:
+| Endpoint | Método | Qué hace |
+|----------|--------|----------|
+| `/admin/deploy` | POST | git pull + systemctl restart |
+| `/admin/exec` | POST | Ejecutar cualquier comando bash |
+| `/admin/logs` | GET | Ver logs de systemd o pm2 |
+
+Todos requieren header `x-deploy-secret: $PILLAI_DEPLOY_SECRET`.
+
+### Ejemplos de uso
+
 ```python
-import requests
-requests.post(
-    "http://143.198.228.78:8181/admin/deploy",
-    headers={"x-deploy-secret": DEPLOY_SECRET},
-)
+import requests, os
+
+SECRET = os.environ["PILLAI_DEPLOY_SECRET"]
+BASE   = "http://143.198.228.78:8181"
+HEADERS = {"x-deploy-secret": SECRET}
+
+# Deploy
+requests.post(f"{BASE}/admin/deploy", headers=HEADERS)
+
+# Comando bash (git pull, pm2, etc.)
+r = requests.post(f"{BASE}/admin/exec", headers=HEADERS,
+    json={"command": "pm2 status", "cwd": "/var/www/html/vilarkptl.com/pill-relay"})
+print(r.json()["stdout"])
+
+# Comando peligroso — el server exige confirmed=True (pedir permiso al usuario primero)
+r = requests.post(f"{BASE}/admin/exec", headers=HEADERS,
+    json={"command": "rm -rf /tmp/old", "confirmed": True})  # solo tras aprobación
+
+# Logs
+r = requests.get(f"{BASE}/admin/logs", headers=HEADERS,
+    params={"service": "pillai-relay", "lines": 200})
+print(r.json()["logs"])
 ```
 
-**Setup en el servidor (una sola vez):**
-```bash
-# Agregar al .env del servidor:
-echo 'PILLAI_DEPLOY_SECRET=<secret-que-generes>' >> /var/www/html/vilarkptl.com/pill-relay/.env
+### Setup en el servidor (una sola vez)
 
-# Asegurarse de que git pull funcione sin contraseña:
+```bash
+# 1. Generar y guardar el secret
+python3 -c "import secrets; print(secrets.token_hex(32))"
+echo 'PILLAI_DEPLOY_SECRET=<token>' >> /var/www/html/vilarkptl.com/pill-relay/.env
+
+# 2. Asegurarse de que git pull funcione sin contraseña
 cd /var/www/html/vilarkptl.com/pill-relay
 git remote set-url origin https://github.com/vilarkptl-lang/pill.ai.git
-# Si el repo es privado, usar token:
+# repo privado → usar token:
 # git remote set-url origin https://<token>@github.com/vilarkptl-lang/pill.ai.git
+
+systemctl restart pillai-relay
 ```
 
-El deploy secret vive **solo en el `.env` del servidor** y en la variable de entorno de cada agente (`PILLAI_DEPLOY_SECRET`). Nunca se commitea al repo.
+El deploy secret vive **solo en el `.env` del servidor** y en `PILLAI_DEPLOY_SECRET` en cada agente. Nunca se commitea al repo.
 
 ## Reglas de seguridad (NO violar)
 

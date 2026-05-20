@@ -16,6 +16,7 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import re
 import secrets
 import time
 from datetime import datetime, timezone
@@ -517,3 +518,99 @@ if HAS_SERVER_DEPS:
             "git_pull": output,
             "restart": restart_output,
         }
+
+    # ── Remote shell endpoint ────────────────────────────────────────────────
+
+    _DANGEROUS_PATTERNS = [
+        r"\brm\s+-rf?\b", r"\brm\b.*\*", r"\brmdir\b",
+        r"\bmkfs\b", r"\bdd\b.*of=", r"\bformat\b",
+        r"\bchmod\s+000\b", r"\bchown\b.*root",
+        r"\b>\s*/etc/", r"\btruncate\b",
+        r"\bkill\s+-9\b", r"\bkillall\b",
+        r"\bdrop\s+table\b", r"\bdrop\s+database\b",
+        r"\bshutdown\b", r"\breboot\b", r"\binit\s+0\b",
+        r"\biptables\s+-F\b", r"\bufw\s+disable\b",
+    ]
+    _DANGEROUS_RE = re.compile("|".join(_DANGEROUS_PATTERNS), re.I)
+
+    class ExecRequest(BaseModel):
+        command: str
+        cwd: str = "/var/www/html/vilarkptl.com/pill-relay"
+        timeout: int = 30
+        confirmed: bool = False  # set True after human approval for dangerous cmds
+
+    @app.post("/admin/exec")
+    def exec_command(req: ExecRequest, x_deploy_secret: str = Header(...)):
+        """
+        Execute any bash command on the server.
+        Dangerous commands require confirmed=true (agent must ask human first).
+        """
+        import subprocess, shlex
+
+        if not DEPLOY_SECRET:
+            raise HTTPException(status_code=503, detail="Exec not configured (PILLAI_DEPLOY_SECRET not set)")
+        if not hmac.compare_digest(x_deploy_secret, DEPLOY_SECRET):
+            raise HTTPException(status_code=403, detail="Invalid deploy secret")
+
+        # Safety check
+        if _DANGEROUS_RE.search(req.command) and not req.confirmed:
+            return {
+                "requires_confirmation": True,
+                "reason": f"Comando peligroso detectado: '{req.command}'. Pide confirmación al usuario antes de proceder.",
+                "hint": "Reenvía con confirmed=true solo tras aprobación explícita del usuario.",
+            }
+
+        try:
+            result = subprocess.run(
+                req.command,
+                shell=True,
+                cwd=req.cwd,
+                capture_output=True,
+                text=True,
+                timeout=req.timeout,
+            )
+            return {
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "returncode": result.returncode,
+                "cwd": req.cwd,
+            }
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504, detail=f"Command timed out after {req.timeout}s")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get("/admin/logs")
+    def get_logs(
+        service: str = "pillai-relay",
+        lines: int = 100,
+        x_deploy_secret: str = Header(...),
+    ):
+        """Fetch recent systemd/pm2 logs for a service."""
+        import subprocess
+
+        if not DEPLOY_SECRET:
+            raise HTTPException(status_code=503, detail="Not configured")
+        if not hmac.compare_digest(x_deploy_secret, DEPLOY_SECRET):
+            raise HTTPException(status_code=403, detail="Invalid deploy secret")
+
+        # Try journalctl first, fall back to pm2
+        try:
+            result = subprocess.run(
+                ["journalctl", "-u", service, "-n", str(lines), "--no-pager"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return {"source": "journalctl", "service": service, "logs": result.stdout}
+        except Exception:
+            pass
+
+        try:
+            result = subprocess.run(
+                ["pm2", "logs", service, "--lines", str(lines), "--nostream"],
+                capture_output=True, text=True, timeout=10,
+            )
+            return {"source": "pm2", "service": service, "logs": result.stdout + result.stderr}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Could not fetch logs: {e}")
+
