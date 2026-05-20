@@ -34,6 +34,10 @@
 | 1.21 | Tests adicionales: `test_licensing.py`, `test_graph.py`, `test_llm_router.py` | ⬜ |
 | 1.22 | Página de precios `pill.ai/pricing` con Stripe Checkout | ⬜ |
 | 1.23 | **Docker sandbox básico** para shell_agent (aislamiento del host) | ⬜ |
+| 1.24 | **Memoria persistente entre sesiones** — historial de conversación + compactación semántica (tipo Claude Code) | ⬜ |
+| 1.25 | **Context injection automático** — leer `CLAUDE.md` / `skills.md` al arrancar, inyectar contexto del proyecto sin que el usuario lo pida | ⬜ |
+| 1.26 | **Plugin DAW / Ableton** — detectar proceso Ableton corriendo, leer archivos `.als` del proyecto activo, comandos específicos (tempo, pistas, plugins) | ⬜ |
+| 1.27 | **Detección de ventana activa** — saber qué app tiene el foco antes de responder; enriquecer contexto automáticamente (Excel abierto → modo hoja de cálculo, Ableton → modo DAW) | ⬜ |
 
 **Costo típico por tarea en Fase 1:**
 ```
@@ -47,7 +51,7 @@ vs GPT-4o: $0.15 – $1.50   →  95-99% más barato
 **Objetivo:** Dashboard, auto-update, comunidad de skills, billing completo.
 
 | # | Tarea | Prioridad |
-|---|-------|-----------|
+|---|-------|----------|
 | 2.1 | **Dashboard Streamlit** — historial de tareas, costos por sesión, gráfico de uso | Alta |
 | 2.2 | **Auto-update** — `pillai update` comprueba y actualiza el paquete | Alta |
 | 2.3 | **Marketplace de skills** — repositorio público de `skills.md` compartibles entre usuarios | Alta |
@@ -65,7 +69,7 @@ vs GPT-4o: $0.15 – $1.50   →  95-99% más barato
 **Modelo de negocio en Fase 2:**
 
 | Tier | Precio | Calls/día | Características |
-|------|--------|-----------|-----------------|
+|------|--------|-----------|----------------|
 | **Free** | $0 | Ilimitado local | Todo el core. Sin relay cloud. |
 | **Starter** | $9/mes | 1,000 relay | + API access + cron + relay cloud |
 | **Pro** | $29/mes | 10,000 relay | + Multi-sesión + Skills marketplace |
@@ -94,7 +98,7 @@ vs GPT-4o: $0.15 – $1.50   →  95-99% más barato
 ## Comparativa de costos (mayo 2026)
 
 | Tarea | GPT-4o | Claude 3.5 | **pill.ai** | Ahorro |
-|-------|--------|------------|-------------|--------|
+|-------|--------|------------|-------------|-------|
 | Analizar PDF 50 págs | $0.45 | $0.38 | **$0.008** | 98% |
 | Navegar web + extraer datos | $1.20 | $0.95 | **$0.015** | 99% |
 | Escribir + ejecutar script Python | $0.80 | $0.65 | **$0.012** | 98% |
