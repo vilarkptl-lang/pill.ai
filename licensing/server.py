@@ -385,6 +385,23 @@ if HAS_SERVER_DEPS:
     def health():
         return {"status": "ok", "service": "pill.ai-license"}
 
+    @app.get("/version")
+    def version():
+        """Latest client version info — polled by the .exe and Tauri Orb on startup."""
+        latest = os.getenv("PILLAI_CLIENT_VERSION", "0.1.0")
+        notes  = os.getenv("PILLAI_RELEASE_NOTES", "")
+        base   = "https://github.com/vilarkptl-lang/pill.ai/releases/latest/download"
+        return {
+            "version":      latest,
+            "notes":        notes,
+            "download_url": {
+                "win":   f"{base}/pillai.exe",
+                "mac":   f"{base}/pillai-mac",
+                "linux": f"{base}/pillai-linux",
+            },
+            "tauri_updater": f"{base}/latest.json",
+        }
+
     # ── Relay endpoint ───────────────────────────────────────────────────────
 
     class RelayRequest(BaseModel):

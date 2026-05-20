@@ -1,12 +1,32 @@
 //! Tauri backend for the pill.ai Orb.
 //!
-//! All LLM work happens in the Python sidecar (pill_ai/orb.py running on
-//! localhost:7842).  This crate only owns three thin commands:
-//!   - chat        → POST /chat to the Python backend
-//!   - resize_window → resize the transparent Tauri window
-//!   - start_drag  → native OS window drag
+//! Commands:
+//!   - chat          → POST /chat to Python backend (localhost:7842)
+//!   - resize_window → resize the transparent window
+//!   - start_drag    → native OS drag
+//!   - check_update  → poll relay /version, return update info if newer
 
 use tauri::Manager;
+
+/// Poll relay /version and return update info if a newer version exists.
+#[tauri::command]
+async fn check_update(relay_url: String) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(6))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let data: serde_json::Value = client
+        .get(format!("{}/version", relay_url.trim_end_matches('/')))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(data)
+}
 
 /// Forward a chat message to the Python backend and return the assistant reply.
 #[tauri::command]
@@ -53,7 +73,13 @@ async fn start_drag(app: tauri::AppHandle) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![chat, resize_window, start_drag])
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![
+            chat,
+            resize_window,
+            start_drag,
+            check_update,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running pill.ai orb");
 }

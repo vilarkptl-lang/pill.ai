@@ -5,6 +5,20 @@
 
   const ORB_W = 60, ORB_H = 60;
   const PANEL_W = 340, PANEL_H = 420;
+  const RELAY_URL = "http://143.198.228.78:8181";
+
+  let updateUrl = $state<string | null>(null);
+
+  // Check for updates silently on load
+  $effect(() => {
+    invoke<{ version: string; download_url: Record<string, string> }>(
+      "check_update", { relayUrl: RELAY_URL }
+    ).then(data => {
+      const plat = navigator.platform.toLowerCase().includes("win") ? "win"
+                 : navigator.platform.toLowerCase().includes("mac") ? "mac" : "linux";
+      updateUrl = data?.download_url?.[plat] ?? null;
+    }).catch(() => {});
+  });
 
   let expanded = $state(false);
   let thinking = $state(false);
@@ -56,6 +70,13 @@
     await invoke("start_drag").catch(() => {});
   }
 </script>
+
+{#if updateUrl}
+  <div class="update-banner">
+    <span>Nueva versión disponible</span>
+    <a href={updateUrl} target="_blank" rel="noreferrer">Descargar</a>
+  </div>
+{/if}
 
 <div class="root" class:expanded>
   {#if !expanded}
@@ -119,6 +140,24 @@
   }
 
   .orb:active { transform: scale(0.94); }
+
+  .update-banner {
+    position: fixed;
+    bottom: 68px;
+    left: 0;
+    background: #0f62fe;
+    color: #fff;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    white-space: nowrap;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  }
+  .update-banner a { color: #fff; font-weight: 600; }
 
   @keyframes pulse {
     0%, 100% { box-shadow: 0 8px 32px rgba(15,98,254,0.38), inset 0 1px 0 rgba(255,255,255,0.18); }

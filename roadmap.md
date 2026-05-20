@@ -42,6 +42,7 @@
 | 1.29 | **Skills grabables por el usuario** — cuando algo le gusta cómo sucede, le dice al agente "recuerda esto" y se guarda como skill local en `~/.pill.ai/skills.md`; el agente lo repite exactamente igual en el futuro | ⬜ |
 | 1.30 | **Cron jobs y triggers desde skills** — el usuario pide "repite esto cada mañana" o "hazlo cuando abra Ableton"; el agente crea el cron/trigger automáticamente y lo vincula a la skill grabada | ⬜ |
 | 1.31 | **Multi-sesión básica** — múltiples agentes corriendo en paralelo (ej. uno buscando archivos mientras otro responde en el overlay) | ⬜ |
+| 1.32 | **Auto-updater** — relay expone `/version`; el .exe y el Orb comprueban al arrancar y notifican al usuario si hay versión nueva; el usuario descarga con un clic | ✅ |
 
 **Costo típico por tarea en Fase 1:**
 ```
