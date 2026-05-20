@@ -38,6 +38,10 @@
 | 1.25 | **Context injection automático** — leer `CLAUDE.md` / `skills.md` al arrancar, inyectar contexto del proyecto sin que el usuario lo pida | ⬜ |
 | 1.26 | **Plugin DAW / Ableton** — detectar proceso Ableton corriendo, leer archivos `.als` del proyecto activo, comandos específicos (tempo, pistas, plugins) | ⬜ |
 | 1.27 | **Detección de ventana activa** — saber qué app tiene el foco antes de responder; enriquecer contexto automáticamente (Excel abierto → modo hoja de cálculo, Ableton → modo DAW) | ⬜ |
+| 1.28 | **Compactación semántica de historial** — comprimir conversaciones largas sin perder contexto clave; base para memoria persistente | ⬜ |
+| 1.29 | **Skills grabables por el usuario** — cuando algo le gusta cómo sucede, le dice al agente "recuerda esto" y se guarda como skill local en `~/.pill.ai/skills.md`; el agente lo repite exactamente igual en el futuro | ⬜ |
+| 1.30 | **Cron jobs y triggers desde skills** — el usuario pide "repite esto cada mañana" o "hazlo cuando abra Ableton"; el agente crea el cron/trigger automáticamente y lo vincula a la skill grabada | ⬜ |
+| 1.31 | **Multi-sesión básica** — múltiples agentes corriendo en paralelo (ej. uno buscando archivos mientras otro responde en el overlay) | ⬜ |
 
 **Costo típico por tarea en Fase 1:**
 ```
@@ -48,23 +52,22 @@ vs GPT-4o: $0.15 – $1.50   →  95-99% más barato
 ---
 
 ## Fase 2 — Plataforma robusta (2–6 meses)
-**Objetivo:** Dashboard, auto-update, comunidad de skills, billing completo.
+**Objetivo:** Dashboard, marketplace de skills, billing completo, comunidad.
+
+> **Puente clave con Fase 1:** Los usuarios ya graban skills localmente (1.29) y las ejecutan con cron/triggers (1.30). En Fase 2 los invitamos a subir esas skills al marketplace público — opcionalmente con precio — para que otros las descarguen y ellos puedan ganar dinero con lo que ya construyeron.
 
 | # | Tarea | Prioridad |
 |---|-------|----------|
 | 2.1 | **Dashboard Streamlit** — historial de tareas, costos por sesión, gráfico de uso | Alta |
 | 2.2 | **Auto-update** — `pillai update` comprueba y actualiza el paquete | Alta |
-| 2.3 | **Marketplace de skills** — repositorio público de `skills.md` compartibles entre usuarios | Alta |
+| 2.3 | **Marketplace de skills** — los usuarios suben sus `skills.md` al repositorio público; pueden fijar precio (gratis o de pago); pill.ai distribuye el 80% al autor | Alta |
 | 2.4 | **Modo servidor REST** — `POST /v1/task` para integraciones externas | Media |
-| 2.5 | **Cron jobs nativos** — `pillai schedule "tarea" --cron "0 9 * * *"` | Media |
-| 2.6 | **Soporte multi-sesión** — múltiples agentes en paralelo | Media |
-| 2.7 | **Billing portal** — `pill.ai/billing` para ver facturas, actualizar tier | Alta |
-| 2.8 | **Webhooks de licencia** — notificación automática al suspender/renovar | Alta |
-| 2.9 | **SDK Python** — `pip install pill-ai` con API pública documentada y estable | Media |
-| 2.10 | **Relay cloud** — batch processing de tareas largas en cloud | Alta |
-| 2.11 | **Semantic memory compaction** — context-compactor integrado en historial largo | Media |
-| 2.12 | **Docker sandbox avanzado** — gVisor + syscall filtering para shell_agent | Alta |
-| 2.13 | **VSCode extension** (básica) — panel lateral con `pillai` integrado | Baja |
+| 2.5 | **Billing portal** — `pill.ai/billing` para ver facturas, ingresos de skills, actualizar tier | Alta |
+| 2.6 | **Webhooks de licencia** — notificación automática al suspender/renovar | Alta |
+| 2.7 | **SDK Python** — `pip install pill-ai` con API pública documentada y estable | Media |
+| 2.8 | **Relay cloud** — batch processing de tareas largas en cloud | Alta |
+| 2.9 | **Docker sandbox avanzado** — gVisor + syscall filtering para shell_agent | Alta |
+| 2.10 | **VSCode extension** (básica) — panel lateral con `pillai` integrado | Baja |
 
 **Modelo de negocio en Fase 2:**
 
@@ -124,3 +127,6 @@ MIT permitiría que alguien forke y venda el mismo servicio sin contribuir. BSL-
 
 ### ¿Por qué SQLite + Fly.io con 1 máquina?
 SQLite es suficiente para cientos de validaciones por segundo con 1 writer. Más simple que PostgreSQL. Si el volumen supera eso, migrar a Turso (SQLite distribuido) — el código del servidor no cambia.
+
+### ¿Por qué skills grabables antes del marketplace?
+El marketplace necesita contenido. Al hacer que grabar una skill sea tan fácil como decir "recuerda esto", los usuarios acumulan skills reales y probadas antes de que exista el marketplace. Cuando abrimos el marketplace, ya hay catálogo — no empieza vacío.
