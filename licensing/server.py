@@ -90,6 +90,13 @@ class GlobalSetting(Base):
 
 def _make_engine():
     is_mysql = DB_URL.startswith("mysql")
+    if DB_URL == "sqlite:///:memory:":
+        from sqlalchemy.pool import StaticPool
+        return create_engine(
+            DB_URL,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
     kwargs = {"pool_pre_ping": True} if is_mysql else {}
     return create_engine(DB_URL, **kwargs)
 

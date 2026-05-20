@@ -45,8 +45,13 @@ class LLMRouter:
         vision_model: str = "gemini/gemini-2.0-flash",
         fallback_model: str = "gpt-4o-mini",
         budget_per_task: float = 0.50,
+        model: str | None = None,
+        api_key: str | None = None,  # noqa: unused — LiteLLM reads from env
     ):
+        if model is not None:
+            default_model = model
         self.default_model = default_model
+        self.model = default_model  # alias for test compatibility
         self.vision_model = vision_model
         self.fallback_model = fallback_model
         self.budget_per_task = budget_per_task
