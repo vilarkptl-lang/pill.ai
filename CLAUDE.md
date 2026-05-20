@@ -30,8 +30,10 @@ cd ~/pill.ai && pwd
 ## Probar en Mac (modo local, sin construir .exe)
 
 ```bash
-cd ~/pill.ai
-source .venv/bin/activate          # o: python3 -m venv .venv && pip install -e .
+cd ~/pill.ai                        # o la ruta donde clonaste el repo (ejecuta pwd para confirmar)
+git pull origin claude/add-licensing-system-KsFAw
+pip install -e ".[dev]"
+pip install pystray keyboard pillow
 export PILLAI_RELAY_URL=http://143.198.228.78:8181
 python -m pill_ai.tray
 ```
