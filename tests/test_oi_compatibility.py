@@ -34,7 +34,7 @@ def _mock_license():
     return LicenseInfo(
         key="LOCAL",
         tier=LicenseTier.FREE,
-        status=LicenseStatus.VALID,
+        status=LicenseStatus.ACTIVE,
         daily_call_limit=0,
         message="",
     )
