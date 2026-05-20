@@ -19,6 +19,7 @@ import os
 import re
 import secrets
 import time
+from pathlib import Path
 
 # Load .env from project root if python-dotenv is available
 try:
@@ -31,6 +32,7 @@ from typing import Optional
 
 try:
     from fastapi import Depends, FastAPI, HTTPException, Request, Header
+    from fastapi.responses import FileResponse
     from pydantic import BaseModel
     from sqlalchemy import (
         Column, Integer, String, Text, create_engine, text
@@ -620,4 +622,42 @@ if HAS_SERVER_DEPS:
             return {"source": "pm2", "service": service, "logs": result.stdout + result.stderr}
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Could not fetch logs: {e}")
+
+    # ── Binary downloads ─────────────────────────────────────────────────────
+
+    _DIST_DIR = Path(os.getenv("PILLAI_DIST_DIR",
+        "/var/www/html/vilarkptl.com/pill-relay/dist"))
+
+    _BINARIES = {
+        "pillai.exe":   ("pillai.exe",   "application/vnd.microsoft.portable-executable"),
+        "pillai-mac":   ("pillai-mac",   "application/octet-stream"),
+        "pillai-linux": ("pillai-linux", "application/octet-stream"),
+    }
+
+    @app.get("/download/{filename}")
+    def download(filename: str):
+        """Serve pre-built binaries. Drop files in $PILLAI_DIST_DIR on the server."""
+        if filename not in _BINARIES:
+            raise HTTPException(status_code=404, detail="Binary not found")
+        fname, media_type = _BINARIES[filename]
+        path = _DIST_DIR / fname
+        if not path.exists():
+            raise HTTPException(status_code=404,
+                detail=f"{filename} not yet uploaded to server. "
+                       f"Run: scp dist/{filename} german@143.198.228.78:{_DIST_DIR}/")
+        return FileResponse(path, media_type=media_type, filename=fname)
+
+    @app.get("/download")
+    def download_index():
+        """List available binaries and their download URLs."""
+        base = "http://143.198.228.78:8181"
+        available = {}
+        for fname in _BINARIES:
+            path = _DIST_DIR / fname
+            available[fname] = {
+                "url":       f"{base}/download/{fname}",
+                "available": path.exists(),
+                "size_mb":   round(path.stat().st_size / 1e6, 1) if path.exists() else None,
+            }
+        return {"binaries": available, "dist_dir": str(_DIST_DIR)}
 
