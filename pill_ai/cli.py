@@ -62,6 +62,9 @@ def main():
             sys.exit(1)
         _run_batch(args[1])
 
+    elif command == "orb":
+        _start_orb()
+
     else:
         # Treat all other args as a one-shot task
         _run_task(" ".join(args))
@@ -185,6 +188,15 @@ def _run_batch(tasks_file: str):
 
     batch = ai.run_batch(tasks, on_result=_progress)
     print(f"\n{batch.summary()}")
+
+
+def _start_orb():
+    """Start the Python backend then launch the Tauri Orb window."""
+    from pill_ai.orb import start_server_background, launch_tauri
+    print("[pill.ai] Iniciando Orb backend en http://127.0.0.1:7842…")
+    start_server_background(port=7842)
+    print("[pill.ai] Abriendo Orb…")
+    launch_tauri()
 
 
 def _start_server():

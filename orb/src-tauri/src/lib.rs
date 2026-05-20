@@ -1,5 +1,14 @@
+//! Tauri backend for the pill.ai Orb.
+//!
+//! All LLM work happens in the Python sidecar (pill_ai/orb.py running on
+//! localhost:7842).  This crate only owns three thin commands:
+//!   - chat        → POST /chat to the Python backend
+//!   - resize_window → resize the transparent Tauri window
+//!   - start_drag  → native OS window drag
+
 use tauri::Manager;
 
+/// Forward a chat message to the Python backend and return the assistant reply.
 #[tauri::command]
 async fn chat(message: String) -> Result<String, String> {
     let client = reqwest::Client::builder()
@@ -22,6 +31,7 @@ async fn chat(message: String) -> Result<String, String> {
     Ok(data["content"].as_str().unwrap_or("").to_string())
 }
 
+/// Resize the orb window (collapse ↔ expand).
 #[tauri::command]
 async fn resize_window(app: tauri::AppHandle, width: f64, height: f64) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("orb") {
@@ -31,6 +41,7 @@ async fn resize_window(app: tauri::AppHandle, width: f64, height: f64) -> Result
     Ok(())
 }
 
+/// Initiate native OS window drag from the current cursor position.
 #[tauri::command]
 async fn start_drag(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("orb") {

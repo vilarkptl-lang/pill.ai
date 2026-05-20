@@ -1,4 +1,5 @@
-"""pill.ai Orb — local Python backend for the Tauri frontend.
+"""
+pill.ai Orb — local Python backend for the Tauri frontend.
 
 Runs a FastAPI server on localhost:7842 that:
   1. Detects intent in the user's query (file search, sysinfo, processes)
@@ -7,16 +8,17 @@ Runs a FastAPI server on localhost:7842 that:
   4. Returns the assistant's reply as {"content": "..."}
 
 Start modes:
-  python -m pill_ai.orb          # server only
-  pillai orb                     # server + Tauri binary
+  python -m pill_ai.orb          # server only (for dev alongside `tauri dev`)
+  pillai orb                     # server + Tauri binary (production)
 """
 from __future__ import annotations
 
 import sys
 import threading
 import time
-from pathlib import Path
 
+
+# ── FastAPI app ──────────────────────────────────────────────────────────────
 
 def _build_app():
     try:
@@ -55,7 +57,8 @@ def _build_app():
         from interpreter._hw_id import get_hw_id
 
         if not RELAY_URL:
-            return {"content": "[pill.ai] PILLAI_RELAY_URL no configurado"}
+            return {"content": "[pill.ai] PILLAI_RELAY_URL no configurado — "
+                               "exporta la variable antes de correr."}
 
         intent = detect_intent(req.message)
         local_ctx = execute(req.message, intent) if intent else ""
@@ -65,14 +68,20 @@ def _build_app():
             messages.append({
                 "role": "system",
                 "content": (
-                    "Eres un asistente de computadora. Contexto local:\n\n"
-                    f"{local_ctx}\n\nResponde de forma concisa y útil."
+                    "Eres un asistente de computadora. El sistema ejecutó comandos "
+                    "locales y obtuvo el siguiente contexto:\n\n"
+                    f"{local_ctx}\n\n"
+                    "Usa esta información para responder de forma concisa y útil."
                 ),
             })
         messages.append({"role": "user", "content": req.message})
 
         try:
-            router = RelayRouter(relay_url=RELAY_URL, license_key="FREE", hw_id=get_hw_id())
+            router = RelayRouter(
+                relay_url=RELAY_URL,
+                license_key="FREE",
+                hw_id=get_hw_id(),
+            )
             result = router.complete(messages, task_hint=req.message)
             return {"content": result}
         except Exception as exc:
@@ -80,6 +89,8 @@ def _build_app():
 
     return app
 
+
+# ── Entry points ─────────────────────────────────────────────────────────────
 
 def start_server(port: int = 7842, log: bool = True) -> None:
     try:
@@ -95,26 +106,32 @@ def start_server(port: int = 7842, log: bool = True) -> None:
 
 
 def start_server_background(port: int = 7842) -> threading.Thread:
+    """Start the server in a daemon thread and return after it is bound."""
     t = threading.Thread(
         target=start_server, kwargs={"port": port, "log": False}, daemon=True
     )
     t.start()
-    time.sleep(1.4)
+    time.sleep(1.4)  # give uvicorn time to bind
     return t
 
 
 def launch_tauri() -> None:
-    import os, subprocess
+    """Spawn the compiled Tauri binary (orb/src-tauri/target/release/pill-ai-orb)."""
+    import os
+    import subprocess
+    from pathlib import Path
+
     candidates = [
         Path(__file__).parent.parent / "orb" / "src-tauri" / "target" / "release" / "pill-ai-orb",
         Path(__file__).parent.parent / "orb" / "src-tauri" / "target" / "release" / "pill-ai-orb.exe",
     ]
     binary = next((p for p in candidates if p.exists()), None)
+
     if binary is None:
-        print("[pill.ai orb] Binario Tauri no encontrado.")
-        print("[pill.ai orb] Compila con: cd orb && npm run tauri build")
-        print("[pill.ai orb] Para dev:    cd orb && npm run tauri dev")
+        print("[pill.ai orb] Tauri binary not found — run: cd orb && npm run tauri build")
+        print("[pill.ai orb] For dev mode run: cd orb && npm run tauri dev")
         sys.exit(1)
+
     subprocess.run([str(binary)], env=os.environ)
 
 

@@ -25,9 +25,14 @@
     pointer-events: none;
   }
 
-  svg { width: 20px; height: 20px; }
+  svg {
+    width: 20px;
+    height: 20px;
+  }
 
-  .thinking svg { animation: spin 1s linear infinite; }
+  .thinking svg {
+    animation: spin 1s linear infinite;
+  }
 
   @keyframes spin {
     from { transform: rotate(0deg); }

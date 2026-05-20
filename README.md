@@ -16,6 +16,58 @@
 
 ---
 
+## Pill Orb — Interfaz flotante
+
+El **Orb** es una burbuja translúcida siempre visible en tu escritorio (60 px, glassmorphism). Un clic la expande a un chat minimalista. No requiere abrir ninguna app.
+
+```
+┌─────────────────────────────────────────┐
+│  pill.ai                              ✕ │   ← drag para mover
+├─────────────────────────────────────────┤
+│                                         │
+│  ¿En qué puedo ayudarte?               │
+│                                         │
+│            [usuario]  busca mis docs ▶  │
+│  ◀ Encontré 12 archivos en ~/Documents  │
+│                                         │
+├─────────────────────────────────────────┤
+│  Escribe algo…                       ↑  │
+└─────────────────────────────────────────┘
+```
+
+**Requisitos:** Rust + Node 18+ (para compilar). Python ya instalado.
+
+**Modo desarrollo (dos terminales):**
+```bash
+# Terminal 1 — backend Python
+export PILLAI_RELAY_URL=http://143.198.228.78:8181
+python -m pill_ai.orb
+
+# Terminal 2 — frontend Tauri
+cd orb
+npm install
+npm run tauri dev
+```
+
+**Modo producción (un solo comando):**
+```bash
+# 1. Compilar el binario Tauri (una sola vez)
+cd orb && npm install && npm run tauri build
+cd ..
+
+# 2. Correr
+export PILLAI_RELAY_URL=http://143.198.228.78:8181
+pillai orb
+```
+
+**Stack del Orb:**
+- Frontend: Svelte 5 (runes) + Tauri 2
+- Ventana: transparente, sin decoraciones, always-on-top
+- Backend: `pill_ai/orb.py` (FastAPI en localhost:7842)
+- Comunicación: `invoke('chat', {message})` → Rust → HTTP → Python → relay
+
+---
+
 ## Install in 30 seconds
 
 **Linux / macOS:**
