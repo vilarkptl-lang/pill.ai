@@ -19,6 +19,13 @@ import os
 import re
 import secrets
 import time
+
+# Load .env from project root if python-dotenv is available
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"), override=False)
+except ImportError:
+    pass
 from datetime import datetime, timezone
 from typing import Optional
 
