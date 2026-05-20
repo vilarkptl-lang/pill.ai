@@ -19,7 +19,6 @@ import os
 import re
 import secrets
 import time
-from pathlib import Path
 
 # Load .env from project root if python-dotenv is available
 try:
@@ -32,7 +31,7 @@ from typing import Optional
 
 try:
     from fastapi import Depends, FastAPI, HTTPException, Request, Header
-    from fastapi.responses import FileResponse, RedirectResponse
+    from fastapi.responses import RedirectResponse
     from pydantic import BaseModel
     from sqlalchemy import (
         Column, Integer, String, Text, create_engine, text
@@ -256,11 +255,16 @@ if HAS_SERVER_DEPS:
             row = s.get(License, key.upper())
             if not row:
                 raise HTTPException(status_code=404, detail="Key not found")
-            if req.status is not None:           row.status = req.status
-            if req.tier is not None:             row.tier = req.tier
-            if req.daily_call_limit is not None: row.daily_call_limit = req.daily_call_limit
-            if req.message is not None:          row.message = req.message
-            if req.features is not None:         row.features = json.dumps(req.features)
+            if req.status is not None:
+                row.status = req.status
+            if req.tier is not None:
+                row.tier = req.tier
+            if req.daily_call_limit is not None:
+                row.daily_call_limit = req.daily_call_limit
+            if req.message is not None:
+                row.message = req.message
+            if req.features is not None:
+                row.features = json.dumps(req.features)
             row.updated_at = now
             s.commit()
         return {"ok": True}
@@ -451,7 +455,6 @@ if HAS_SERVER_DEPS:
                     raise HTTPException(status_code=403, detail="Invalid or inactive license")
 
                 # Rate limiting: check daily usage
-                limit_setting = s.get(GlobalSetting, "free_daily_limit")
                 limit = row.daily_call_limit
                 if limit > 0:
                     import time
@@ -554,7 +557,7 @@ if HAS_SERVER_DEPS:
         Execute any bash command on the server.
         Dangerous commands require confirmed=true (agent must ask human first).
         """
-        import subprocess, shlex
+        import subprocess
 
         if not DEPLOY_SECRET:
             raise HTTPException(status_code=503, detail="Exec not configured (PILLAI_DEPLOY_SECRET not set)")

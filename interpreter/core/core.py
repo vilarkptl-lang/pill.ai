@@ -19,13 +19,12 @@ Params added by pill.ai (not in OI):
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, List, Optional
 
 from ..llm import LLMRouter
 from ..context_injector import ContextInjector
-from licensing.activation import require_license, get_license_status
+from licensing.activation import require_license
 from licensing.models import LicenseInfo
 
 
@@ -351,7 +350,8 @@ class Interpreter:
     # ── Conversation persistence ──────────────────────────────────────────
 
     def _save_conversation(self):
-        import json, datetime
+        import json
+        import datetime
         path = self.conversation_history_path
         path.mkdir(parents=True, exist_ok=True)
         fname = self.conversation_filename or f"{datetime.date.today()}.json"

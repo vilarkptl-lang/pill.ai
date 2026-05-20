@@ -5,8 +5,6 @@ Runs in background, registers Ctrl+Space hotkey, opens overlay on demand.
 from __future__ import annotations
 
 import sys
-import threading
-from pathlib import Path
 
 
 def _make_icon():

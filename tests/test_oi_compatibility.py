@@ -6,11 +6,6 @@ Tests are intentionally offline-safe: no LLM calls, no network, no license key.
 Mock LangGraph graph where needed.
 """
 import inspect
-import os
-import sys
-import types
-from pathlib import Path
-from typing import get_type_hints
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -313,9 +308,7 @@ def test_interpreter_singleton_importable():
 
 def test_lazy_singleton_not_instantiated_on_import():
     """The singleton should NOT construct until first attribute access."""
-    import interpreter as interp_module
     # _singleton should still be None if we never accessed interpreter.*
-    from interpreter import interpreter as interp_pkg
     # Access _singleton via the module's internal
     import interpreter.interpreter as interp_mod
     # This test is structural — just ensure the proxy class is in place

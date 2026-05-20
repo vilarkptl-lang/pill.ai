@@ -14,8 +14,7 @@ Relay mode (PILLAI_RELAY_URL is set — used in distributed .exe):
 """
 from __future__ import annotations
 
-import os
-from typing import Any, Iterator, Optional
+from typing import Iterator, Optional
 
 try:
     import litellm
@@ -46,7 +45,7 @@ class LLMRouter:
         fallback_model: str = "gpt-4o-mini",
         budget_per_task: float = 0.50,
         model: str | None = None,
-        api_key: str | None = None,  # noqa: unused — LiteLLM reads from env
+        api_key: str | None = None,  # noqa: ARG002 — LiteLLM reads from env
     ):
         if model is not None:
             default_model = model
@@ -96,7 +95,7 @@ class LLMRouter:
                 stream=stream,
                 **kwargs,
             )
-        except Exception as e:
+        except Exception:
             if chosen != self.fallback_model:
                 resp = litellm.completion(
                     model=self.fallback_model,

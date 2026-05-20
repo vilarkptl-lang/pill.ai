@@ -6,10 +6,8 @@ All tests are offline-safe.
 """
 from __future__ import annotations
 
-import importlib
 import os
 import sys
-import time
 
 import pytest
 

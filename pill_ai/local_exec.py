@@ -7,7 +7,6 @@ The relay then interprets the results and responds naturally.
 """
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -218,7 +217,7 @@ def _running_processes() -> str:
             ).stdout
             lines = out.splitlines()[:30]
             return "Procesos activos:\n" + "\n".join(
-                f"  {l.split()[10]}" for l in lines if len(l.split()) > 10
+                f"  {line.split()[10]}" for line in lines if len(line.split()) > 10
             )
         except Exception as e:
             return f"[error listando procesos: {e}]"

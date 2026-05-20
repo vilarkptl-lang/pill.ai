@@ -4,7 +4,6 @@ Uses Playwright (async or sync) for full browser control.
 """
 from __future__ import annotations
 
-import asyncio
 import base64
 from typing import Optional
 

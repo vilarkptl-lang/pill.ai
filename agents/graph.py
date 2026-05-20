@@ -21,7 +21,7 @@ Human-in-the-loop (HITL):
 from __future__ import annotations
 
 import re
-from typing import Annotated, Any, Optional, TypedDict
+from typing import Annotated, Optional, TypedDict
 
 try:
     from langgraph.graph import StateGraph, END
@@ -193,7 +193,8 @@ def _desktop_node(state: AgentState, router: LLMRouter) -> AgentState:
     raw = router.complete(messages)
 
     # Flag mass-click (>10 clicks) for HITL
-    import json, re as _re
+    import json
+    import re as _re
     match = _re.search(r"\[.*\]", raw, _re.DOTALL)
     if match and state["safe_mode"] != "off":
         try:
@@ -370,7 +371,8 @@ def build_graph(router: LLMRouter):
 # ── Action executors ──────────────────────────────────────────────────────────
 
 def _execute_browser_actions(raw_json: str, safe_mode: str) -> str:
-    import json, re
+    import json
+    import re
     match = re.search(r"\[.*\]", raw_json, re.DOTALL)
     if not match:
         return f"[could not parse actions: {raw_json[:200]}]"
@@ -405,7 +407,8 @@ def _execute_browser_actions(raw_json: str, safe_mode: str) -> str:
 
 
 def _execute_desktop_actions(raw_json: str, safe_mode: str) -> str:
-    import json, re
+    import json
+    import re
     match = re.search(r"\[.*\]", raw_json, re.DOTALL)
     if not match:
         return f"[could not parse actions: {raw_json[:200]}]"

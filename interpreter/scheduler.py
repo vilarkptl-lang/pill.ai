@@ -11,6 +11,7 @@ The background scheduler thread checks every 30 s:
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import threading
@@ -24,7 +25,6 @@ _SCHEDULES_PATH = _PILLAI_DIR / "schedules.json"
 _lock           = threading.Lock()
 
 # ── Natural-language → cron ───────────────────────────────────────────────────
-import re
 
 _CRON_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bcada\s+ma[ñn]ana\b",        re.I), "0 9 * * *"),
