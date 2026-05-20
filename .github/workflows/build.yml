@@ -16,7 +16,7 @@ jobs:
         include:
           - os: windows-latest
             artifact: pillai.exe
-          - os: macos-latest
+          - os: macos-13
             artifact: pillai-mac
           - os: ubuntu-latest
             artifact: pillai-linux
