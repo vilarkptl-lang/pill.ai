@@ -222,13 +222,32 @@ def _shell_node(state: AgentState, router: LLMRouter) -> AgentState:
     Shell agent: generates terminal command. Routes to human_approval if dangerous.
     On resume from HITL approval, executes the approved command directly.
     """
+    import platform
+    is_windows = platform.system() == "Windows"
+
     # Resumed from human_approval — state has the approved command in messages
     if state.get("pending_command") is None and state.get("_approved_command"):
         command = state["_approved_command"]
     else:
+        if is_windows:
+            shell_hint = (
+                "You are on Windows. Use PowerShell syntax.\n"
+                "For file/folder searches always use:\n"
+                "  Get-ChildItem -Path C:\\ -Recurse -ErrorAction SilentlyContinue "
+                "-Filter \"*pattern*\" | Select-Object -ExpandProperty FullName\n"
+                "For case-insensitive search use -Filter with wildcards.\n"
+                "Never use CMD syntax (dir, findstr) — use PowerShell.\n"
+                "IMPORTANT: Return ONLY the PowerShell command, nothing else."
+            )
+        else:
+            shell_hint = (
+                "You are on a Unix/Linux/macOS system.\n"
+                "For file searches use: find / -iname '*pattern*' 2>/dev/null\n"
+                "Return ONLY the shell command, nothing else."
+            )
         system = (
-            "Generate a shell command to accomplish the task. "
-            "Return ONLY the shell command, nothing else."
+            "Generate a shell command to accomplish the task.\n"
+            + shell_hint
         )
         messages = [
             {"role": "system", "content": system},
@@ -236,6 +255,12 @@ def _shell_node(state: AgentState, router: LLMRouter) -> AgentState:
             {"role": "user", "content": state["task"]},
         ]
         command = router.complete(messages).strip()
+        # Strip markdown code fences if the LLM wrapped the command
+        if command.startswith("```"):
+            lines = command.splitlines()
+            command = "\n".join(
+                l for l in lines if not l.startswith("```")
+            ).strip()
 
     # HITL check: dangerous command needs user approval
     if _is_dangerous(command) and state["safe_mode"] != "off":
@@ -292,11 +317,23 @@ def _coder_node(state: AgentState, router: LLMRouter) -> AgentState:
 
 def _final_node(state: AgentState, router: LLMRouter) -> AgentState:
     """Synthesize all agent outputs into a final user-facing answer."""
-    system = "Summarize what was accomplished. Be concise and helpful."
+    agent_output = state.get("agent_output", "")
+    system = (
+        "You are presenting the result of a completed task to the user.\n"
+        "RULES:\n"
+        "1. Base your answer ONLY on the actual command output shown in the conversation.\n"
+        "2. NEVER invent, assume, or fabricate results — if output is empty, say so.\n"
+        "3. If a command ran and found nothing, report that honestly and suggest a next step.\n"
+        "4. Quote actual paths/filenames from the output — do not paraphrase them.\n"
+        "5. Be concise. Do not add unsolicited explanations unless the user asked."
+    )
     messages = [
         {"role": "system", "content": system},
         *state["messages"],
-        {"role": "user", "content": f"Original task: {state['task']}"},
+        {"role": "user", "content": (
+            f"Original task: {state['task']}\n"
+            f"Last command output:\n{agent_output}"
+        )},
     ]
     final = router.complete(messages)
     new_state = dict(state)
